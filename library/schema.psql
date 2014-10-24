@@ -107,36 +107,38 @@ INSERT INTO member_state VALUES ('idle', TRUE, TRUE, TRUE, FALSE, FALSE, FALSE);
 INSERT INTO member_state VALUES ('deceased', FALSE, FALSE, FALSE, FALSE, TRUE, FALSE);
 
 CREATE TABLE member (
-	ident			        TEXT		NOT NULL
-					        UNIQUE
-					        CHECK (ident_ok(ident)),
-	descr			        TEXT		NOT NULL,
-	affiliation		        TEXT		NOT NULL DEFAULT '',
-	password		        TEXT		DEFAULT NULL,
-	passwd_chat		        TEXT		DEFAULT NULL,
-	tz_info			        TEXT		NOT NULL DEFAULT '',
-	im_info			        TEXT		NOT NULL DEFAULT '',
-	tel_info		        TEXT		NOT NULL DEFAULT '',
-	sms_info		        TEXT		CHECK (pstn_ok(sms_info)),
-	post_info		        TEXT		NOT NULL DEFAULT '',
-	bio_info		        TEXT		NOT NULL DEFAULT '',
-	airport			        TEXT		CHECK (length(airport) = 3),
-	no_email		        BOOLEAN		NOT NULL DEFAULT FALSE, -- XXX
-	hide_email		        BOOLEAN		NOT NULL DEFAULT FALSE, -- XXX
-	furlough		        BOOLEAN		NOT NULL DEFAULT FALSE,
-	change_pw		        BOOLEAN		NOT NULL DEFAULT FALSE,
-	entered			        TIMESTAMP	NOT NULL DEFAULT NOW()::TIMESTAMP,
-	activity		        TIMESTAMP	NOT NULL DEFAULT NOW()::TIMESTAMP,
-	uuid			        UUID		NOT NULL UNIQUE,
-	image 			        TEXT,
-	login_attempts		    INT 		NOT NULL DEFAULT 0,
-	login_try_begin		    TIMESTAMP,
-	sysadmin		        BOOLEAN		NOT NULL DEFAULT false,
-	recover_email		    TEXT        CHECK (email_ok(recover_email)),
-	recover_password	    TEXT,
+	ident			TEXT		NOT NULL
+						UNIQUE
+						CHECK (ident_ok(ident)),
+	descr			TEXT		NOT NULL,
+	affiliation		TEXT		NOT NULL DEFAULT '',
+	password		TEXT		DEFAULT NULL,
+	passwd_chat		TEXT		DEFAULT NULL,
+	tz_info			TEXT		NOT NULL DEFAULT '',
+	im_info			TEXT		NOT NULL DEFAULT '',
+	tel_info		TEXT		NOT NULL DEFAULT '',
+	sms_info		TEXT		CHECK (pstn_ok(sms_info)),
+	post_info		TEXT		NOT NULL DEFAULT '',
+	bio_info		TEXT		NOT NULL DEFAULT '',
+	airport			TEXT		CHECK (length(airport) = 3),
+	no_email		BOOLEAN		NOT NULL DEFAULT FALSE, -- XXX
+	hide_email		BOOLEAN		NOT NULL DEFAULT FALSE, -- XXX
+	furlough		BOOLEAN		NOT NULL DEFAULT FALSE,
+	change_pw		BOOLEAN		NOT NULL DEFAULT FALSE,
+	entered			TIMESTAMP	NOT NULL
+						DEFAULT NOW()::TIMESTAMP,
+	activity		TIMESTAMP	NOT NULL
+						DEFAULT NOW()::TIMESTAMP,
+	uuid			UUID		NOT NULL UNIQUE,
+	image 			TEXT,
+	login_attempts		INT 		NOT NULL DEFAULT 0,
+	login_try_begin		TIMESTAMP,
+	sysadmin		BOOLEAN		NOT NULL DEFAULT false,
+	recover_email		TEXT		CHECK (email_ok(recover_email)),
+	recover_password	TEXT,
 	recover_password_set_at	TIMESTAMP,
-	ssh_key                 TEXT,
-	ident_changed           BOOLEAN     NOT NULL DEFAULT false,
+	ssh_key			TEXT,
+	ident_changed		BOOLEAN		NOT NULL DEFAULT false,
 	PRIMARY KEY (ident)
 );
 GRANT ALL ON TABLE member TO www, "www-data", sysadmin;
@@ -552,18 +554,19 @@ GRANT SELECT ON TABLE second_factor_types to www, "www-data";
 GRANT ALL ON TABLE second_factor_types TO sysadmin;
 
 CREATE TABLE second_factors (
-    id         SERIAL,
-	member	   TEXT         NOT NULL REFERENCES member(ident)
-					        ON UPDATE CASCADE
-					        ON DELETE CASCADE,
-	type	   TEXT	 	    NOT NULL REFERENCES second_factor_types(type)
-					        ON UPDATE CASCADE
-					        ON DELETE CASCADE,
-	entered	   TIMESTAMP	NOT NULL DEFAULT NOW()::TIMESTAMP,
-	active	   BOOLEAN		NOT NULL DEFAULT false,
-	counter	   INTEGER		DEFAULT 0,
-	key	       TEXT,
-	descr	   TEXT
+    id			SERIAL,
+	member		TEXT		NOT NULL REFERENCES member(ident)
+							ON UPDATE CASCADE
+							ON DELETE CASCADE,
+	type		TEXT		NOT NULL
+							REFERENCES second_factor_types(type)
+							ON UPDATE CASCADE
+							ON DELETE CASCADE,
+	entered		TIMESTAMP	NOT NULL DEFAULT NOW()::TIMESTAMP,
+	active		BOOLEAN		NOT NULL DEFAULT false,
+	counter		INTEGER		DEFAULT 0,
+	key			TEXT,
+	descr		TEXT
 );
 GRANT ALL ON TABLE second_factors TO www, "www-data", sysadmin;
 
