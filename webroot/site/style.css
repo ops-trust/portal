@@ -1,0 +1,21 @@
+body {
+  background-color: #191950; color: #F8F8FF;
+  font-family: arial, helvetica, sans-serif;
+}
+
+a {
+  color: yellow;
+}
+
+.note {
+  color: #F8A000;
+  font-weight: bold;
+  font-size: larger;
+}
+
+p.mh {
+  background-color: #F8F8FF; color: #191950;
+  text-align: center;
+  font-variant: small-caps;
+  font-size: 30px;
+}

@@ -1,0 +1,7 @@
+;Adding SQL Schema for CGI Sessions
+;per http://search.cpan.org/~sherzodr/CGI-Session-3.95/Session/PostgreSQL.pm
+CREATE TABLE web_sessions (
+        id CHAR(32) NOT NULL,
+        a_session TEXT NOT NULL
+);
+GRANT ALL ON TABLE web_sessions TO www,sysadmin;

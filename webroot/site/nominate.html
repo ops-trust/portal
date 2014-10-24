@@ -1,0 +1,166 @@
+<%args>
+$email => ''
+$descr => ''
+$bio_info => ''
+$attestation => ''
+@attestations => ()
+$submit => ''
+$form_id => ''
+</%args>
+
+<H3>Nominate and Vouch</H3>
+<%perl>
+$q->delete_all();
+my $postscript = '';
+$email =~ tr/A-Z/a-z/;
+$email = &common::ExtractAddr($email);
+my $db_email = $dbh->quote($email);
+my $existing = 0;
+my $ident;
+if (length $email) {
+	my $row = $dbh->selectrow_hashref(qq{
+		SELECT m.ident, m.descr, m.bio_info
+		  FROM member m
+		  JOIN member_email me ON me.member = m.ident
+		 WHERE me.email = $db_email;
+	});
+	if (defined $row) {
+		($ident, $descr, $bio_info) =
+			($row->{ident}, $row->{descr}, $row->{bio_info});
+		$existing = (defined $ident &&
+			defined $descr &&
+			defined $bio_info);
+	}
+	# XXX this way of checking for blocked members is shitcrockful
+	# in that it does not handle any reasonable sort of antialiasing.
+	my $db_ident = $dbh->quote($ident);
+	$row = $dbh->selectrow_hashref(qq{
+		SELECT COUNT(*) AS count
+		  FROM member_trustgroup mt
+		  JOIN member_state ms ON (ms.ident = mt.state)
+		 WHERE ROW(mt.member, mt.trustgroup) =
+			ROW($db_ident, $tg->{db_ident})
+		   AND ms.blocked
+	});
+	$blocked = ($row->{count} != 0);
+	if ($blocked) {
+		$postscript .= $q->p($q->code("$email ($descr)") . qq{
+				blocked, talk to <CODE>admin@</CODE>
+				for more information.}
+			);
+	}
+}
+
+#if (length $submit) {
+#	$m->abort(403) unless $form_id eq $Mech->{sess}->param('form_id');
+#}
+
+if ($submit eq 'Nominate') {
+	my %attestations = map { $_ => '' } @attestations;
+	my $unchecked = 0;
+	map { $unchecked++ unless defined $attestations{$_} } keys %$att;
+	if ((!length $email) || (!length $descr) || (!length $attestation) ||
+		$unchecked != 0)
+	{
+		$postscript .= $q->hr . $q->p('All fields are required.');
+	} else {
+		my $affiliation = $email;
+		$affiliation =~ s/^[^@]+@/@/;
+		my $msg = &common::new_member($dbh, $tg, $Site->{member},
+						$email, $descr, $bio_info,
+						$affiliation, $attestation);
+		$msg =~ s/[\;\.]\s+/$1<P>/go;
+		$postscript .= $q->hr . $msg;
+	}
+} else {
+	$form_id = &common::new_form_id();
+	$Mech->{sess}->param('form_id', $form_id);
+	$Mech->{sess}->flush();
+	print $q->start_form,
+		$q->hidden({-override => 1}, 'form_id', $form_id),
+		$q->start_table({-border => 0});
+	if ($submit eq '') {
+		print $q->Tr({-align=>'LEFT', -valign=>'MIDDLE'}, [
+			$q->td('E-mail address of nominee:') .
+				$q->td($q->textfield(-name => 'email',
+					-size => 65,
+					-maxlength => 100))
+			]);
+		$submit = 'Search';
+	} elsif ($existing && !$blocked) {
+		print $q->Tr({-align=>'LEFT', -valign=>'MIDDLE'}, [
+			$q->td(['E-mail address:', $q->code($email)]),
+			$q->td(['Full name:', $q->code($descr)]),
+			$q->td(['Biography:', $q->code($bio_info)])
+			]);
+		print $q->hidden('email', $email),
+			$q->hidden('descr', $descr),
+			$q->hidden('bio_info', $bio_info);
+		$submit = 'Nominate';
+	} elsif (!$blocked) {
+		print $q->Tr({-align=>'LEFT', -valign=>'MIDDLE'}, [
+			$q->td(['E-mail address:', $q->code($email)]),
+			$q->td('Full name:') .
+				$q->td($q->textfield(-name => 'descr',
+					-size => 65,
+					-maxlength => 100)),
+			$q->td('Biography:') .
+				$q->td($q->textarea(-name => 'bio_info',
+					-rows => 5,
+					-columns => 65))
+			]);
+		print $q->hidden('email', $email);
+		$submit = 'Nominate';
+	}
+	if ($submit ne 'Search' && !$blocked) {
+		print $q->Tr({-align=>'LEFT', -valign=>'MIDDLE'}, [
+			$q->td({-valign=>'TOP', -align=>'LEFT'},
+				qq{Attestation:
+				<P><EM>(do not say<BR>
+				know-met-trust!)</EM>}) .
+			    $q->td({-valign=>'TOP', -align=>'LEFT'},
+				$q->textarea(-name => 'attestation',
+				-rows => 5,
+				-columns => 65) .
+				qq{<BR><EM>Explain how you know,
+				when you met, and why you trust.</EM>}),
+			$q->td({-align=>'CENTER'},
+				'<P><EM>(must<BR>check<BR>all<BR>boxes)</EM></P>') .
+			$q->td($q->checkbox_group(-name => 'attestations',
+				-values => [keys %$att],
+				-default => [ ],
+				-columns => 1,
+				-labels => $att))
+			]);
+	}
+	print $q->end_table;
+	print $q->p . $q->submit('submit', $submit) unless $blocked;
+	print $q->end_form;
+}
+print $postscript;
+</%perl>
+
+<%shared>
+my $q = undef;
+my $dbh = undef;
+my $tg = undef;
+my $att = {};
+my $blocked = undef;
+</%shared>
+
+<%init>
+$q = $Mech->{cgi};
+$dbh = $Site->{dbh};
+$tg = $Site->{tg};
+if (!$Site->{admin} && !$tg->{nom_enabled}) {
+	print $q->h3('Only admins can nominate in this trustgroup');
+	return;
+}
+foreach my $row (@{$dbh->selectall_arrayref(qq{
+	SELECT ident, descr
+	  FROM attestations
+	 WHERE trustgroup = $tg->{db_ident}
+}, {Slice => {}})}) {
+	$att->{$row->{ident}} = $row->{descr};
+}
+</%init>

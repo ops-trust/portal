@@ -1,0 +1,59 @@
+<%args>
+$member => ''
+</%args>
+
+<%perl>
+$m->clear_buffer();
+$r->content_type('text/plain');
+$r->header_out('Cache-Control' => 'no-cache');
+my $filename = "${common::dbname}.$tg->{ident}.membership.txt";
+$r->err_headers_out->add(
+	'Content-Disposition' => qq{inline; filename="$filename"}
+);
+
+my $members = { };
+foreach my $row (@{$dbh->selectall_arrayref(qq{
+	SELECT m.ident, m.descr, m.affiliation,
+		m.tel_info, m.sms_info, mt.state
+	  FROM member m
+	  JOIN member_trustgroup mt ON (ROW(mt.member, mt.trustgroup) =
+					ROW(m.ident, $tg->{db_ident}))
+	  JOIN member_state ms ON (ms.ident = mt.state)
+	 WHERE mt.trustgroup = $tg->{db_ident}
+	   AND ms.can_login
+}, {Slice => {}})}) {
+	$_ = $row->{descr}; s/^\s+//o; s/\s+$//o;
+	my $sortdescr = /\s+([^\s]+)$/o ? "$1$`" : $_;
+	$sortdescr =~ tr/A-Z/a-z/;
+	$members->{$row->{ident}} = {
+		affiliation => $row->{affiliation},
+		tel_info => $row->{tel_info},
+		sms_info => $row->{sms_info},
+		state => $row->{state},
+		sortdescr => $sortdescr
+	};
+}
+
+foreach my $ident (sort { $members->{$a}->{sortdescr} cmp
+			     $members->{$b}->{sortdescr} }
+				keys %$members)
+{
+	my $member = $members->{$ident};
+	printf "%-30s : tel %-15s : sms %-15s\n",
+		sprintf("%s (%s)", $ident, $member->{affiliation}),
+		 $member->{tel_info},  $member->{sms_info};
+}
+$m->abort();
+</%perl>
+
+<%shared>
+my $q = undef;
+my $dbh = undef;
+my $tg = undef;
+</%shared>
+
+<%init>
+$q = $Mech->{cgi};
+$dbh = $Site->{dbh};
+$tg = $Site->{tg};
+</%init>

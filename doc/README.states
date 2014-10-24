@@ -1,0 +1,77 @@
+(note: this is out of date, see state_mon.pl and schema.psql for truth.)
+
+on this table the rows are membership states and the columns are member
+capabilities/permissions.
+
+   state   | can_login | can_see | can_send | can_recv | blocked | hidden
+-----------+-----------+---------+----------+----------+---------+--------
+ nominated | false     | false   | false    | false    | false   | false
+ vetted    | false     | false   | false    | false    | false   | false
+ approved  | true      | true    | false    | false    | false   | false
+ active    | true      | true    | true     | true     | false   | false
+ inactive  | true      | true    | true     | false    | false   | false
+ blocked   | false     | false   | false    | false    | true    | true
+ failed    | false     | false   | false    | false    | false   | true
+ soonidle  | true      | true    | true     | true     | false   | false
+ idle      | true      | true    | true     | false    | false   | false
+ deceased  | false     | false   | false    | false    | true    | false
+
+permissions:
+
+"can_login" means your password works at the main web portal UI.
+"can_see" means you can see the membership list and other primary
+	materials, including the wiki.
+"can_send" means you're allowed to send mail to the non-public-access
+	mailing lists.
+"can_recv" means you can receive mail to the subscription-checkbox
+	mailing lists.
+"blocked" means you can't be nominated, nor log in, nor receive or
+	send e-mail, nor be seen.
+
+states:
+
+"nominated" means somebody has nominated you but you don't know yet.
+"vetted" means you've been invouched and you still don't know about it.
+"approved" will someday mean that admin@ has noted your vettedness and
+	noted the absence of controversy about you.  right now you just
+	go from vetted to approved immediately (criteria is identical.)
+"active" means you've done everything you need to do and the system
+	is not sending you any annoy-o-grams about your checklist.
+"inactive" means you used to be approved but lost your pgp key or lost
+	a vouch or the vouch criteria was raised and now excludes you.
+"blocked" means somebody negvouched you and there's an investigation.
+"idle" means it's been X days (imagine "60") since you either
+	logged into the UI or sent e-mail to one of the lists.
+"soonidle" means you will soon be "idle" (we send mail warning of this
+	so that you can log into the portal and prevent going idle.)
+"failed" means your nomination timed out without reaching "vetted".
+
+transitions:
+
+NULL -> nominated (when somebody nominates you, and mail is sent to
+	vetting@ asking that folks check you out)
+nominated -> vetted (when a cron job detects that you have enough
+	invouches (target_invouches), and notifies admin@ about this)
+vetted -> approved (when an admin notes that there are no negvouches
+	and manually slots you into "approved" status, and you finally
+	hear for the first time that you are a member, or if that's
+	not implemented yet, it's when a cron job notices that you've
+	been vetted and automatically approves you)
+approved -> active (when a cron job detects that you're approved but
+	that you need to input a pgp (if that's required) and outvouch
+	(if that's required).
+active -> inactive (when you lose your pgp key or it's suddenly required,
+	or when you used to have enough invouches (min_invouches) but now
+	you don't.)
+inactive -> active (when a cron job detects that you've outvouched and
+	input a pgp key, and notifies by e-mail you about this)
+ANY -> blocked (when an admin wants the system to camp onto your e-mail
+	address and not allow further state changes or new nominations)
+active -> soonidle (when a cron job detects that you have not logged
+	in or sent mail for some significant period of time, and sends
+	you mail telling you that you will soon be idle.)
+soonidle -> active (when you log back into the UI or transmit to a
+	mailinglist.)
+soonidle -> idle (when you go a few more days without activity after
+	being told you will soon be idle)
+idle -> active (same as soonidle -> active)

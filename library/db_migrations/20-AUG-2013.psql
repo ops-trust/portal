@@ -1,0 +1,8 @@
+; Add a name field to the member_detail_types table
+ALTER TABLE member_detail_types add display_name text;
+UPDATE member_detail_types set display_name = 'Amateur radio callsign' where type = 'callsign';
+ALTER TABLE member_detail_types ALTER COLUMN display_name SET NOT NULL;
+ALTER TABLE member_detail_types ADD CONSTRAINT member_detail_types_display_name_idx UNIQUE (display_name);
+
+; Add an index that prevents a user from having more than one language.
+ALTER TABLE member_language_skill ADD CONSTRAINT member_language_skill_member_language_idx UNIQUE (member, language);

@@ -1,0 +1,478 @@
+<%args>
+$ident => ''
+$email => ''
+$descr => ''
+$pgpkey_id => ''
+$no_email => ''
+$submit => ''
+$form_id => ''
+$token => ''
+$trustgroup => ''
+</%args>
+
+<H3>Edit E-mail and PGP Information</H3>
+<%perl>
+use Digest::SHA;
+# - E-mails from any "known" address will be accepted. 
+# - Each TG will only send TO it's designated email.
+
+my $postscript = '';
+my @stmts = ();
+$email =~ tr/A-Z/a-z/;
+$email = &common::ExtractAddr($email);
+my $db_email = $dbh->quote($email);
+
+if ($submit eq 'Add Email') {
+	push @stmts, "INSERT INTO member_email 
+		(member,email) 
+		VALUES ($Site->{db_member},$db_email)";
+	$postscript .= $q->hr() . $q->p("E-mail address added.");
+} elsif ($submit eq 'Verify' or $submit eq 'Restart Verify'){
+	#Generate token
+	my $token = substr &common::rand_str().&common::rand_str(),1,10;
+	my $db_token = $dbh->quote(Digest::SHA::sha256_hex($token));
+	#record in DB
+	push @stmts, "
+		UPDATE member_email 
+		   SET verify_token = $db_token
+		 WHERE member = $Site->{db_member}
+		   AND email = $db_email";
+	#E-mail Token. 
+	&common::notify_email_verify($Site->{member}, $email, $token);
+	$postscript .= $q->hr() . $q->p("Token issued, check $email");
+} elsif ($submit eq 'Submit Verify') { #Attempt to Confirm Verify Token.
+	my $detail = $dbh->selectrow_hashref(qq{
+		SELECT me.verified,me.verify_token
+		  FROM member_email me
+		 WHERE member = $Site->{db_member}
+		   AND email = $db_email
+	});
+	my $sha_token = Digest::SHA::sha256_hex($token);
+	if ($sha_token eq $detail->{'verify_token'}) {
+		$postscript .= "E-mail address Verified.";
+		push @stmts, "
+			UPDATE member_email
+			   SET verify_token = NULL, verified = 't'
+			 WHERE member = $Site->{db_member}
+			   AND email = $db_email";
+	} else {
+		$postscript .= "Invalid Verify Token.";
+	}
+} elsif ($submit eq 'Set Email'){
+	my $db_trustgroup = $dbh->quote($trustgroup);
+	#Confirm PGP/verified status.
+	my $update = 1;
+	my $row = $Site->{dbh}->selectrow_hashref(qq{
+		SELECT tg.pgp_required, me.pgpkey_id
+		  FROM trustgroup tg
+		  JOIN member_trustgroup mt ON mt.trustgroup = tg.ident
+		  JOIN member_email me on mt.member = me.member
+		 WHERE tg.ident = $db_trustgroup
+		   AND mt.member = $Site->{db_member}
+		   AND me.email = $db_email
+		   AND me.verified
+	});
+	if (!defined $row) {
+		$postscript .= $q->hr() . $q->p("Invalid Request");
+		$update = 0;
+	} else {
+		if ($row->{pgp_required} and !defined $row->{pgpkey_id}){
+			$postscript .= $q->hr() . $q->p("PGP required for TG:$trustgroup");
+			$update = 0;
+		}
+	}
+	if ($update){
+		#XXX: Add check for freemail per tg setting. 
+		push @stmts, "
+			UPDATE member_trustgroup
+			   SET email = $db_email
+			   WHERE member = $Site->{db_member}
+			   AND trustgroup = $db_trustgroup";
+		$postscript .= $q->hr() . $q->p("New E-mail address set.");
+	}
+} elsif ($submit eq 'Delete Email'){
+	my $update = 1;
+	#Confirm that e-mail is not recovery, 
+	my $row = $Site->{dbh}->selectrow_hashref(qq{
+		SELECT m.recover_email
+		  FROM member m
+		 WHERE m.ident = $Site->{db_member}
+	});
+	if (defined $row) {
+		if ($row->{recover_email} eq $email){ 
+			$postscript .= $q->hr() . $q->p("E-mail is set as recovery");
+			$update = 0;
+		}
+	}
+	#Confirm that e-mail is not a member of a TG.
+	$row = $Site->{dbh}->selectrow_hashref(qq{
+		SELECT mt.trustgroup 
+		  FROM member_trustgroup mt
+		 WHERE mt.member = $Site->{db_member}
+		   AND mt.email = $db_email
+	});
+	if (defined $row) {
+		$postscript .= $q->hr() . $q->p("E-mail in use by TG: $row->{trustgroup}");
+		$update = 0;
+	}
+	if ($update) {
+		push @stmts, "
+			DELETE FROM member_email
+			 WHERE member = $Site->{db_member}
+			   AND email = $db_email";
+		   $postscript .= $q->hr() . $q->p("$db_email Deleted.");
+	}
+} elsif ($submit eq 'Upload PGP'){
+	my $keyring_data = '';
+	my $fh = $q->upload('pgpkey');
+	if (defined $fh) {
+		unlink "${keyring}.temp";
+		my $len = 0;
+		my $keyfile = undef;
+		open($keyfile, ">${keyring}.temp");
+		while (read($fh, my $buffer, 4096)) {
+			print {$keyfile} $buffer;
+			$len += length $buffer;
+			# store it in a string for db storage
+			$keyring_data .= $buffer;
+		}
+		close($keyfile);
+		# Only accept ASCII armored data
+		if ($len == 0) {
+			$postscript .= $q->hr .
+				$q->p('Empty file, not installed.');
+		} elsif ($keyring_data =~ /PGP PUBLIC KEY/) {
+			$postscript .= $q->hr .
+				$q->p('loading ASCII armored keys');
+			unlink &common::gpgcmd_myfiles($Site->{uuid});
+			my $cmd = "$my_gpgcmd --ignore-time-conflict ".
+				"--import ${keyring}.temp 2>&1";
+			$postscript .= $q->hr;
+			foreach (`$cmd`) {
+				chomp;
+				# XXX: should hide our paths
+				$postscript .= $q->code($q->escapeHTML($_)) .
+					$q->br;
+			}
+			my $db_uuid = $dbh->quote($Site->{uuid});
+			foreach my $detail (@{$dbh->selectall_arrayref(qq{
+				SELECT m.ident
+				  FROM member_email me
+				  JOIN member m ON m.ident = me.member
+				 WHERE m.uuid = $db_uuid
+				   AND me.email = $db_email
+			}, {Slice => {}})}) {
+				my $keyid = (&common::gpgcmd_mykeys($Site->{uuid},$email))[0];
+				my @expire = &common::gpgcmd_keyexpire($Site->{uuid},$keyid);
+				$postscript .= $q->hr .
+					$q->p("Loading Key: $keyid for $email\n") .
+					$q->br;
+				my $db_expire = @expire ? $dbh->quote($expire[0]) : 'NULL';
+				my $db_keyid = $dbh->quote($keyid);
+				my $db_email = $dbh->quote($email);
+				my $db_keydata = $dbh->quote($keyring_data);
+				my $db_member = $dbh->quote($detail->{'ident'});
+				push @stmts, qq{
+					UPDATE member_email me
+					   SET
+						pgpkey_id = $db_keyid,
+						pgpkey_expire = $db_expire,
+						keyring = $db_keydata,
+						keyring_update_at = now()
+					 WHERE me.email = $db_email
+					   AND me.member = $db_member;
+				};
+			}
+		} else {
+			$postscript .= $q->hr .
+				$q->p('We only accept ASCII armored keys');
+		}
+		rename "${keyring}.temp",
+			$common::tmpdir.'/'.$Site->{member}.'.temp';
+	}
+} elsif ($submit eq 'Make recovery E-mail'){
+	#TODO: Confirm that E-mail has PGP before setting.
+	push @stmts, "
+		UPDATE member
+		   SET recover_email = $db_email
+		 WHERE ident = $Site->{db_member}";
+	$postscript .= $q->hr() . $q->p("$db_email Set as password recover address.");
+}
+
+if (@stmts){
+	my $errstr = &common::audited_do($dbh, $Site->{member}, @stmts);
+	if (length $errstr) {
+		$postscript .= $q->hr() . $q->p("Failure: $errstr");
+	} else {
+		$postscript .= $q->hr() . $q->p('Profile has been updated.');
+	}
+}
+$q->delete_all();
+
+#
+# Collect main details for member. 
+#
+my $row = $Site->{dbh}->selectrow_hashref(qq{
+	SELECT m.ident, m.descr, m.no_email, m.recover_email
+	  FROM member m
+	 WHERE m.ident = $Site->{db_member}
+});
+if (!defined $row) {
+	print $q->p("No contact information on file?");
+	return;
+}
+
+if ($row->{no_email}) {
+	print $q->h2("E-mail has been disabled for this account.");
+	print $q->h3("Please contact technical\@support.ops-trust.net.");
+	return;
+}
+
+$form_id = &common::new_form_id();
+$Mech->{sess}->param('form_id', $form_id);
+$Mech->{sess}->flush();
+
+#
+# Generate list of E-mail addresses.
+#
+
+my $emails;
+my @verified_emails = ();
+my @verified_pgp_emails = ();
+my $row_count = 0;
+
+foreach my $email (@{$dbh->selectall_arrayref(qq{
+	SELECT me.email,me.pgpkey_id,me.verified,me.verify_token,
+		me.pgpkey_expire,me.keyring,me.keyring_update_at,
+		ARRAY(
+			SELECT trustgroup 
+			  FROM member_trustgroup mt
+			  JOIN member_state ms ON ms.ident = mt.state
+			 WHERE email = me.email
+			   AND ms.can_see
+			 ) as trustgroups
+	  FROM member_email me
+	 WHERE me.member = $Site->{db_member}
+	 ORDER BY me.email
+}, {Slice => {}})}) {
+	if ($email->{verified}) {
+		push @verified_emails,$email->{email};
+		if (defined $email->{pgpkey_id}) {
+			push @verified_pgp_emails,$email->{email};
+		}
+	}
+	$email->{recovery_address} =  $row->{recover_email};
+	my $zebra_class = ($row_count %2) ? "a" : "b";
+	my $tg_list = join(" | ",@{$email->{trustgroups}});
+	$emails .= $q->Tr({-class => "$zebra_class"},
+		$q->td($email->{email} ),
+		$q->td( &render_pgp($email) ),
+		$q->td( &render_verify($email) ),
+		$q->td(
+			$q->start_table({-border=>0, -cellspacing=>0, -cellpadding=>0}),
+			$q->Tr($q->td({-valign=>'MIDDLE'},$tg_list)),
+			$q->end_table
+		),
+		$q->td( &render_actions($email) )
+	);
+	$row_count++;
+};
+
+my $email_list = 
+	$emails .
+	$q->Tr($q->td({-colspan=>3},
+		$q->start_form(),
+		$q->start_table({-border=>0, -cellspacing=>0, -cellpadding=>0}),
+		$q->Tr( 
+			$q->td({-colspan=>2},
+				$q->textfield(
+				-name => 'email',
+				-override => 1,
+				-size => 30) .
+			'&nbsp;(<EM>e.g.,</EM> <CODE>bob@aol.com</CODE>)'.
+			$q->td( $q->submit('submit','Add Email')) 
+		)),
+		$q->end_table,
+		$q->end_form
+	));
+
+#List Trustgroup
+
+my $trustgroups;
+$row_count = 0;
+foreach my $tg (@{$dbh->selectall_arrayref(qq{
+	SELECT tg.ident,tg.descr,mt.email,mt.state,tg.pgp_required
+	  FROM member_trustgroup mt
+	  JOIN member_state ms ON ms.ident = mt.state
+	  JOIN trustgroup tg ON tg.ident = mt.trustgroup
+	 WHERE mt.member = $Site->{db_member}
+	 	AND ms.can_see
+	 ORDER BY tg.ident;
+}, {Slice => {}})}) {
+	if ($tg->{pgp_required}) {
+		$tg->{email_list} = \@verified_pgp_emails;
+	} else {
+		$tg->{email_list} = \@verified_emails;
+	}
+	my $zebra_class = ($row_count %2) ? "a" : "b";
+	$trustgroups .= $q->Tr({-class => "$zebra_class"},
+		$q->td($tg->{ident}) .
+		$q->td($tg->{descr}) .
+		$q->td($tg->{state}) .
+		$q->td($tg->{email}) .
+		&render_email_select($tg)
+	);
+	$row_count++;
+};
+
+print $q->start_table({-border=>0, -cellspacing=>1, -cellpadding=>1});
+print $q->Tr(
+	$q->td({colspan => 4},$q->h3("E-mail addresses:"))
+	);
+print $q->Tr(
+	$q->td("E-mail") .
+	$q->td("PGP Key") .
+	$q->td("Verify") .
+	$q->td("Trustgroups") .
+	$q->td("Actions")
+	);
+print $email_list;
+print $q->end_table;
+print $q->br;
+print $q->start_table({-border=>0, -cellspacing=>1, -cellpadding=>1});
+print $q->Tr(
+	$q->td($q->h3("Trustgroups:"))
+	);
+print $q->Tr(
+	$q->td("Trustgroup") .
+	$q->td("Description") .
+	$q->td("State") .
+	$q->td("E-mail") .
+	$q->td("Set E-mail")
+	);
+print $trustgroups ;
+print $q->end_table;
+print $postscript;
+
+sub render_verify($) {
+	my $row = shift;
+	if (defined $row->{verify_token}) {
+		$q->start_table({-border=>0, -cellspacing=>0, -cellpadding=>0}) .
+		$q->Tr($q->td(
+		$q->start_form(-action => '#'.$row->{email}) .
+		$q->hidden('email', $row->{email}) .
+		$q->textfield(
+			-name => 'token',
+			-override => 1,
+			-size => 15) .
+		$q->submit('submit', 'Submit Verify') .
+		$q->end_form
+		).$q->td(
+		$q->start_form(-action => '#'.$row->{email}) .
+		$q->hidden('email', $row->{email}) .
+		$q->submit('submit', 'Restart Verify') .
+		$q->end_form)).
+		$q->end_table
+	} elsif (!$row->{verified}) {
+		$q->start_form(-action => '#'.$row->{email}) .
+		$q->hidden('email', $row->{email}) .
+		$q->submit('submit', 'Verify') .
+		$q->end_form;
+	} else {
+		if ($row->{recovery_address} eq $row->{email}) {
+			$q->p("Verified<br>Recovery");
+		} else {
+			$q->p("Verified");
+		}
+	}
+}
+
+sub render_pgp($) {
+	my $row = shift;
+	my $table = '';
+	if (defined $row->{pgpkey_id}) {
+		$table = 
+		$q->start_table({-border=>0, -cellspacing=>0, -cellpadding=>0}) .
+		$q->Tr($q->td("KeyID:"),$q->td($row->{pgpkey_id})) .
+		$q->Tr($q->td("Expire:"),$q->td($row->{pgpkey_expire})) .
+		$q->Tr($q->td("Update:"),$q->td($row->{keyring_update_at})) .
+		$q->end_table
+	}
+	$table .
+	$q->start_form(-action => '#'.$row->{email}) .
+	$q->p('Upload PGP Key:') .
+	$q->hidden('email', $row->{email}) .
+	$q->filefield(-name => 'pgpkey', -default => '') .
+	$q->submit('submit', 'Upload PGP') .
+	$q->end_form;
+}
+
+sub render_actions($) {
+	my $row = shift;
+	$q->start_table({-border=>0, -cellspacing=>0, -cellpadding=>0}) .
+	&render_delete($row) .
+	&render_recover($row) .
+	$q->end_table;
+}
+
+sub render_delete($) {
+	my $row = shift;
+	return if (defined $row->{trustgroups}[0]);
+	return if ($row->{recovery_address} eq $row->{email});
+	$q->Tr($q->td(
+		$q->start_form(),
+		$q->hidden('email', $row->{email}) .
+		$q->submit('submit', 'Delete Email') .
+		$q->end_form
+	));
+}
+
+sub render_recover($) {
+	my $row = shift;
+	return if ($row->{recovery_address} eq $row->{email});
+	return if (!defined $row->{pgpkey_id});
+	$q->Tr($q->td(
+		$q->start_form(),
+		$q->hidden('email', $row->{email}) .
+		$q->submit('submit', 'Make recovery E-mail') .
+		$q->end_form
+	));
+}
+
+sub render_email_select() {
+	my ($row) = shift;
+	$q->td(
+		$q->start_form(-action => '#'.$row->{ident}) .
+		$q->hidden('trustgroup', $row->{ident}) .
+		$q->popup_menu(-name => 'email',
+			-values =>  $row->{email_list}) .
+		$q->submit('submit', 'Set Email') .
+		$q->end_form
+	);
+}
+
+</%perl>
+
+<%shared>
+our $q = undef;
+my $dbh = undef;
+my $tg = undef;
+my $keyring = undef;
+my $my_gpgcmd = undef;
+</%shared>
+
+<%init>
+$q = $Mech->{cgi};
+$dbh = $Site->{dbh};
+$tg = $Site->{tg};
+$keyring = sprintf '%s/%s', &common::gpg_key_path($Site->{uuid}), $Site->{uuid};
+$my_gpgcmd = &common::gpgcmd_user($Site->{uuid});
+</%init>
+
+<%method vetting_not_needed>
+# tells sitehandler.mas:request_ok that we don't need vetting here
+</%method>
+
+<%method tg_not_needed>
+# tells sitehandler.mas:request_ok that we don't need a trustgroup here
+</%method>

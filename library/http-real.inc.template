@@ -1,0 +1,60 @@
+<VirtualHost *:80>
+  ServerName !portalname!.!domain!
+  ServerAdmin hostmaster@!domain!
+  Redirect 301 / https://!portalname!.!domain!/
+</VirtualHost>
+
+<IfModule mod_ssl.c>
+
+<VirtualHost *:443 >
+  ServerName !portalname!.!domain!
+  ServerAdmin hostmaster@!domain!
+  DocumentRoot !portal!/webroot
+  DirectoryIndex index.html
+  ErrorLog !portal!/logs/error_log
+  CustomLog !portal!/logs/access_log combined
+
+  PerlAddVar MasonCompRoot "private => !portal!/webroot"
+  PerlSetVar MasonAllowGlobals $Mech
+  PerlAddVar MasonAllowGlobals $Site
+  PerlSetVar MasonDataDir  /var/local/mason/ops-trust
+  PerlSetVar MasonErrorFormat brief
+  PerlSetVar TGName main
+  PerlModule HTML::Mason::ApacheHandler
+  PerlModule CGI
+  PerlPostConfigRequire !library!/common.pm
+  <LocationMatch "(\.html)$">
+    SetHandler perl-script
+    PerlHandler HTML::Mason::ApacheHandler
+  </LocationMatch>
+
+  DefaultType text/html
+
+  # SSL Configuration
+  SSLEngine on
+  SSLCertificateFile !sslcertfile!
+  SSLCertificateKeyFile !sslkeyfile!
+  SSLCertificateChainFile !sslchainfile!
+
+  # Restrict the CipherSuite to things which we believe to be 'secure'
+  # We can get PFS by making TLSv1+HIGH+EDH: this will drop all MS IE users.
+  # From: https://cipherli.st/ (note we are damning the IE users to hell here)
+  SSLCipherSuite AES256+EECDH:AES256+EDH
+  SSLProtocol All -SSLv2 -SSLv3
+  SSLHonorCipherOrder On
+
+  # Handle MS-IE issues with SSL services.
+  SetEnvIf User-Agent ".*MSIE.*" nokeepalive ssl-unclean-shutdown
+
+  CustomLog !portal!/logs/ssl_request_log "%t %h %{SSL_PROTOCOL}x %{SSL_CIPHER}x \"%r\" %b"
+  
+</VirtualHost>
+
+<Directory "!portal!/webroot">
+    Options Indexes FollowSymLinks
+    AllowOverride All
+    Order allow,deny
+    Allow from all
+</Directory>
+</IfModule>
+

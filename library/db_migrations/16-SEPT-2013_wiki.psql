@@ -1,0 +1,2 @@
+; Trustgroups should have the option of having a wiki
+ALTER TABLE trustgroup ADD has_wiki boolean DEFAULT false NOT NULL;

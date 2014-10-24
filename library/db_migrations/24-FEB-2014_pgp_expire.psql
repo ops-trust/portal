@@ -1,0 +1,2 @@
+--Adding a pgpkey_expire field so that we can act based on key expiration
+ALTER TABLE member_email ADD pgpkey_expire TIMESTAMP;

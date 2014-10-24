@@ -1,0 +1,55 @@
+<%perl>
+$m->comp('/mech/header.mas');
+if (!$m->request_comp->method_exists('is_public') &&
+    !defined $Mech->{sess}->param('~logged-in'))
+{
+	print $m->cgi_object()->h3('You are not logged in.');
+	$m->redirect('!authurl!');
+} else {
+	my $ok_p = $m->scomp('/site/sitehandler.mas:request_ok',
+				request => $m->request_comp);
+	if ($ok_p !~ /^\s*OK\s*/) {
+		print $m->cgi_object()->h3($ok_p);
+	} else {
+		$m->call_next;
+	}
+}
+$m->comp('/mech/footer.mas');
+</%perl>
+
+<%once>
+use CGI;
+use CGI::Cookie;
+use CGI::Session;
+</%once>
+
+<%init>
+$r->header_out('Cache-Control' => 'no-cache');
+$r->content_type(q{text/html; charset=utf-8});
+#my $sh = $r->server->server_hostname || 'www';
+my $sh = 'www';
+$m->comp('/site/sitehandler.mas:init');
+$Mech = {
+	cgi => $m->cgi_object(),
+	dsn => 'driver:PostgreSQL',
+	args => {Handle=>$Site->{dbh}, TableName=>'web_sessions'}
+};
+$Mech->{sess} = CGI::Session->load($Mech->{dsn}, $Mech->{cgi}, $Mech->{args});
+if (defined $Mech->{sess}->param('test') && !defined $Mech->{sess}->param('member')){
+  $Mech->{sess}->param('member',$Mech->{sess}->param('test'));
+  $Mech->{sess}->flush();
+}
+$m->comp('/site/sitehandler.mas:session_setup');
+if ($Mech->{sess}->is_expired() &&
+    !$m->request_comp->method_exists('is_logout'))
+{
+	$m->comp('/site/sitehandler.mas:logout');
+	$m->redirect('!authurl!');
+}
+$Mech->{username} = $Mech->{sess}->param('member');
+</%init>
+
+<%cleanup>
+$Mech->{sess}->flush() unless $Mech->{sess}->is_empty();
+$m->comp('/site/sitehandler.mas:fini');
+</%cleanup>

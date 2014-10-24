@@ -1,0 +1,14 @@
+<HTML>
+<HEAD>
+  <TITLE><& /site/decor.mas:title &></TITLE>
+  <META HTTP-EQUIV="Content-Style-Type" CONTENT="text/css">
+  <LINK REL="stylesheet" HREF="/style.css" TYPE="text/css">
+  <LINK REL="shortcut icon" HREF="/site/favicon.ico" TYPE="image/x-icon">
+</HEAD>
+<BODY>
+<TABLE WIDTH="100%" BORDER="0" CELLPADDING="10px">
+  <COLGROUP WIDTH="20%"> <COLGROUP WIDTH="*0">
+  <TR><TD COLSPAN="2"><& /site/decor.mas:banner &></TD></TR>
+  <TR>
+  <TD VALIGN="top"><& /mech/leftside.mas &></TD>
+  <TD VALIGN="top">

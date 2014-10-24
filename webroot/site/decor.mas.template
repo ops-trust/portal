@@ -1,0 +1,13 @@
+<%method banner>
+<A HREF="/">
+   <P CLASS="mh">!title!</P>
+</A>
+</%method>
+
+<%method copyright>
+&copy; !coname!
+</%method>
+
+<%method title>
+!brand!
+</%method>

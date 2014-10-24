@@ -1,0 +1,42 @@
+<H3>Mission</H3>
+
+<P>!title! (or "!brand!") forum is a highly vetted community of security
+professionals focused on the operational robustness, integrity, and security
+of the Internet. The community promotes responsible action against malicious
+behavior beyond just observation, analysis and research. !brand! carefully
+expands membership pulling talent from many other security forums looking
+for strong vetting with in three areas:
+<OL>
+<LI>sphere of trust;
+<LI>sphere of action;
+<LI>the ability to maintain a "need to know" confidentiality.
+</OL>
+
+<P>!title! (or "!brand!") members are in a position to directly affect
+Internet security operations in some meaningful way. The community's members
+span the breadth of the industry including service providers, equipment
+vendors, financial institutions, mail admins, DNS admins, DNS registrars,
+content hosting providers, law enforcement organizations/agencies, CSIRT
+Teams, and third party organizations that provide security-related services
+for public benefit (e.g. monitoring or filtering service providers). The
+breadth of membership, along with an action plus trust vetting approach
+creates a community which would be in a position to apply focused attention on
+the malfeasant behaviors which threaten the Internet.
+
+<P>Members:
+<UL>
+<LI>will be privy to lists of infected IP addresses, compromised
+accounts, bot c&c lists and other data that should be acted upon.
+<LI>are expected to take appropriate action within their domain of control.
+<LI>are expected to contribute data as appropriate and in a fashion that
+does not violate any laws or corporate policies.
+</UL>
+
+<P>!brand! does not accept applications for membership. New candidates are
+nominated by their peers who are actively working with them on improving the
+operational robustness, integrity, and security of the Internet.
+
+<%method is_public>
+# no-op, just here to tell autohandler that this page can be
+# accessed without logging in.
+</%method>

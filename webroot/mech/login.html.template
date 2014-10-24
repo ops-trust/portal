@@ -1,0 +1,29 @@
+<%args>
+$next => undef
+</%args>
+
+<%perl>
+print qq{
+<P>This login form is no longer in-service. 
+Please update your links and bookmarks to refer to : !authurl!
+};
+if($next) {
+	print '<A HREF="!authurl!?next='.$next.'">!authurl!?next='.$next.'</A>.</P>';
+} else {
+	print '<A HREF="!authurl!">!authurl!</A>.</P>';
+}
+
+</%perl>
+
+<%method is_public>
+# no-op, just here to tell autohandler that this page can be
+# accessed without logging in first.
+</%method>
+
+<%method tg_not_needed>
+# tells sitehandler.mas:request_ok that we don't need a trustgroup here
+</%method>
+
+<%method vetting_not_needed>
+# tells sitehandler.mas:request_ok that we don't need vetting here
+</%method>

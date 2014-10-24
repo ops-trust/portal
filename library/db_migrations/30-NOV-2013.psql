@@ -1,0 +1,4 @@
+ALTER TABLE member Add PRIMARY KEY (ident);
+ALTER TABLE web_sessions Add PRIMARY KEY (id);
+
+

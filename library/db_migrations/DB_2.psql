@@ -1,0 +1,62 @@
+-- Starting Version 2
+-- Ticket 378 Move PGP keys and faces into SQL
+BEGIN;
+
+--Images should be base64. 
+ALTER TABLE member ADD image TEXT;
+
+--Store the PGP key in ASCII Armor 
+ALTER TABLE member_email ADD keyring TEXT;
+ALTER TABLE member_email ADD keyring_update_at TIMESTAMP;
+ALTER TABLE mailinglist ADD pubkey TEXT;
+ALTER TABLE mailinglist ADD key_update_at TIMESTAMP;
+ALTER TABLE mailinglist ADD seckey TEXT;
+
+CREATE TABLE message_types (
+	ident	TEXT PRIMARY KEY,
+	descr	TEXT
+);
+
+GRANT ALL ON message_types TO www,sysadmin;
+
+INSERT INTO message_types (ident,descr) 
+VALUES ('web_global_hello','Global public about Ops-t page');
+INSERT INTO message_types (ident,descr) 
+VALUES ('web_tg_hello','TG unique welcome message, after login');
+INSERT INTO message_types (ident,descr) 
+VALUES ('email_statechange_vetted','Message sent when state changed to vetted');
+
+--Store the message templates. 
+CREATE TABLE message_catalog (
+	trustgroup TEXT REFERENCES trustgroup(ident)
+		ON UPDATE CASCADE
+		ON DELETE CASCADE,
+	message_type TEXT NOT NULL REFERENCES message_types(ident),
+	message_template	TEXT
+);
+
+GRANT ALL ON message_catalog TO www,sysadmin;
+
+--Old table no-longer used. 
+DROP TABLE freemail;
+
+--Prevent multiple rows in schema_version
+DROP TABLE schema_version;
+
+CREATE TABLE schema_metadata (
+   key  TEXT PRIMARY KEY,
+   value  INT NOT NULL DEFAULT 0
+);
+
+GRANT ALL ON schema_metadata TO sysadmin;
+
+INSERT INTO schema_metadata (key,value) 
+VALUES ('portal_schema_version',1);
+
+--Update Version. 
+UPDATE schema_metadata 
+   SET value = 3 
+ WHERE value = 2
+   AND key = 'portal_schema_version';
+
+COMMIT;

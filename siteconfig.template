@@ -1,0 +1,54 @@
+#
+# The name of the group that owns this installation.
+brand='Ops-T'
+#
+# A title which will appear on the portal's pages.
+title='Operations Security Trust'
+#
+# Copyright by...
+coname='OpSecAdmin'
+#
+# The portal host name.
+portalname='portal'
+#
+# The auth URL.
+authurl='https://openid.ops-trust.net/'
+#
+# The email domain to be used.
+domain='ops-trust.net'
+#
+# URL to the wiki for a trustgroup. %s is replaced by the TrustGroup name.
+wiki='https://wiki.ops-trust.net/%s/bin/view'
+#
+# Regular expressions to be used in locating the support website or wiki.
+supportre='https://ops.!domain!/rt'
+wikire='https://wiki.!domain!/([a-z]+)/'
+
+# E-mail for support requests
+supportemail='technical\@support.!domain!'
+#
+# The location of the postgres DB, either a local instance or a hostname.
+pghost='/var/run/postgresql'
+pgport=5433
+pguser='postgres'
+#
+# The database name to be used.
+pgname='ops-trust'
+#
+# Paths to the running code once installed.
+portal='/proj/ops-trust'
+library='/proj/ops-trust/library'
+webroot='/proj/ops-trust/webroot'
+sitedir='/proj/ops-trust/webroot/site'
+mechdir='/proj/ops-trust/webroot/mech'
+webvar='/proj/ops-trust/webvar'
+#
+# User id (integer) and group id (integer) to be used for file ownership
+# and apache process configuration.
+wwwuid=33
+wwwgid=33
+#
+# Paths to SSL Key, Cert, Chainfile. To be used in the Apache configuration.
+sslcertfile='/etc/ssl/certs/yourcert.pem'
+sslkeyfile='/etc/ssl/private/yourkeyhere'
+sslchainfile='/etc/ssl/certs/chainlovin'

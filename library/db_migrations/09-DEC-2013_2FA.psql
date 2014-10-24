@@ -1,0 +1,26 @@
+;prepare to add support for second factor auth. 
+
+CREATE TABLE second_factor_types (
+  type  TEXT   NOT NULL
+               UNIQUE
+);
+GRANT SELECT ON TABLE second_factor_types to www;
+GRANT ALL ON TABLE second_factor_types TO sysadmin;
+
+CREATE TABLE second_factors (
+	uuid       UUID  NOT NULL UNIQUE PRIMARY KEY,
+        member     TEXT  NOT NULL REFERENCES member(ident)
+                   ON UPDATE CASCADE
+                   ON DELETE CASCADE,
+        type       TEXT  NOT NULL REFERENCES second_factor_types(type)
+                   ON UPDATE CASCADE
+                   ON DELETE CASCADE,
+        entered    TIMESTAMP  NOT NULL DEFAULT NOW()::TIMESTAMP,
+        active     BOOLEAN NOT NULL DEFAULT false,
+        counter    INTEGER DEFAULT 0,
+        key        TEXT
+);
+GRANT ALL ON TABLE second_factors TO www,sysadmin;
+
+INSERT INTO second_factor_types VALUES ('HOTP');
+INSERT INTO second_factor_types VALUES ('TOTP');

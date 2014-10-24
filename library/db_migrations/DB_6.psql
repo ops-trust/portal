@@ -1,0 +1,34 @@
+-- Starting Version 6
+BEGIN;
+
+--704 recovery password.
+ALTER TABLE member ADD recover_password TEXT;
+ALTER TABLE member ADD recover_password_set_at TIMESTAMP;
+
+--706 Notices display
+CREATE TABLE notices (
+  ID         SERIAL UNIQUE NOT NULL,
+  CREATED_AT TIMESTAMP NOT NULL DEFAULT NOW()::TIMESTAMP,
+  EXPIRE_AT  TIMESTAMP, -- can be null, if we don't know when to expire.
+  MESSAGE    TEXT NOT NULL
+);
+ALTER TABLE member ADD last_notice INT REFERENCES notices(id);
+
+--707 Fix logging references
+
+ALTER TABLE audit_history ALTER member DROP NOT NULL;
+ALTER TABLE audit_history
+  DROP CONSTRAINT audit_history_member_fkey,
+  ADD CONSTRAINT audit_history_member_fkey
+  FOREIGN KEY (member)
+    REFERENCES member(ident)
+    ON UPDATE CASCADE
+    ON DELETE SET NULL;
+
+-- Set the db version properly.
+--Update Version.
+UPDATE schema_metadata
+   SET value = 7
+ WHERE value = 6
+   AND key = 'portal_schema_version';
+COMMIT;

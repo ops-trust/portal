@@ -1,0 +1,7 @@
+ALTER TABLE member ADD sysadmin boolean not null default false;
+UPDATE member SET sysadmin = 't' WHERE ident = 'chrismorrow';
+UPDATE member SET sysadmin = 't' WHERE ident = 'jtk';
+UPDATE member SET sysadmin = 't' WHERE ident = 'paulvixie';
+UPDATE member SET sysadmin = 't' WHERE ident = 'ktt';
+UPDATE member SET sysadmin = 't' WHERE ident = 'bapril';
+UPDATE member SET sysadmin = 't' WHERE ident = 'jeroen';

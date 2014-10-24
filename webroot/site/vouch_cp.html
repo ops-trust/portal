@@ -1,0 +1,198 @@
+<%args>
+$state => 'Unmarked'
+$limit => 25
+$submit => undef
+$offset => 0
+</%args>
+
+<H3>Personalized Vouching Control Panel</H3>
+
+<%perl>
+$q->Delete(qw[state limit submit]);
+
+$state = 'Unmarked' unless $state eq 'Dunno' || $state eq 'Vouched';
+$limit = 0 + $limit;
+$limit = 50 if $limit > 50;
+
+#
+# select for display
+#
+my $display_list = $q->start_form(-action => 'vouch_cp.html') .
+	$q->hidden('state', $state) .
+	$q->hidden('limit', $limit) .
+	$q->hidden('offset', $offset) .
+	$q->start_table;
+my $and_where = 'AND mv.vouchee IS NULL';
+my $action = 'Dunno';
+if ($state eq 'Dunno') {
+	$and_where = 'AND mv.vouchee IS NOT NULL AND NOT mv.positive';
+	$action = 'Reconsider';
+} elsif ($state eq 'Vouched') {
+	$and_where = 'AND mv.vouchee IS NOT NULL AND mv.positive';
+	$action = 'Unvouch';
+}
+
+if (defined $submit) {
+	my @profiles = $q->param('member[]');
+	foreach my $ident (@profiles) {
+		next if $ident eq '';
+		next unless $submit =~
+			/^(Dunno|Reconsider|Unvouch)\sSelected$/;
+		my $dispo = $1;
+		my $db_ident = $dbh->quote($ident);
+		my $stmt;
+		if ($dispo eq 'Dunno') {
+			$stmt = qq{
+				INSERT INTO member_vouch
+				       (vouchor, vouchee, trustgroup, positive)
+				VALUES ($Site->{db_member}, $db_ident,
+					$tg->{db_ident}, FALSE);
+			};
+		} else {
+			my $positivity;
+
+			if ($dispo eq 'Reconsider') {
+				$positivity = 'NOT positive';
+			} elsif ($dispo eq 'Unvouch') {
+				$positivity = 'positive';
+			} else {
+				$m->abort(403);
+			}
+			$stmt = qq{
+				DELETE FROM member_vouch mv
+				 WHERE mv.vouchor = $Site->{db_member}
+				   AND mv.vouchee = $db_ident
+				   AND mv.trustgroup = $tg->{db_ident}
+				   AND $positivity;
+			};
+		}
+		my $errstr = &common::audited_do($dbh, $Site->{member}, $stmt);
+		if (length $errstr) {
+			print $q->p("$stmt: $errstr");
+		} else {
+			print $dispo, ' ', $q->code($ident), $q->br();
+		}
+	}
+	print $q->hr();
+}
+
+</%perl>
+<P>Every member of the community has their own set of people for whom they've
+vouched, and also their own set of people whom they just don't know well
+enough to vouch for.  This page gives you a way to see and manage this
+personalized information.</P>
+
+<P>People you have not input any trust information about will show here as
+"unmarked".  The people you've vouched for will show as "vouched".  The
+ones you just don't well enough to vouch for will show as "dunno".  If you
+can move everybody to either the "vouched" set (if you can vouch for them
+according to the trust community's criteria) or to the "dunno" set, then
+you'll be left with a short list of people you havn't yet thought about.</P>
+
+<P>The goal of this tool is to increase the trust density within our community.
+Therefore, a great personal goal would be an empty list of "unmarked" members.
+One common way to do this is to open tabs on each member you intend to vouch
+for, then say 'Dunno' to the rest, lather, rinse, repeat.
+</P>
+
+<%perl>
+
+my $n = 0;
+foreach my $row (@{$dbh->selectall_arrayref(qq{
+	SELECT m.descr, m.ident, m.affiliation
+	  FROM member m
+	  JOIN member_trustgroup mt
+		ON (mt.member = m.ident
+			AND mt.trustgroup = $tg->{db_ident}
+			AND mt.member <> $Site->{db_member})
+	  JOIN member_state ms ON (ms.ident = mt.state)
+	LEFT OUTER JOIN member_vouch mv
+		ON (mv.trustgroup = mt.trustgroup
+			AND mv.vouchee = m.ident
+			AND mv.vouchor = $Site->{db_member})
+	 WHERE NOT ms.hidden $and_where
+	ORDER BY mt.entered
+	 LIMIT $limit OFFSET $offset
+}, {Slice => {}})}) {
+	$display_list .=
+		$q->Tr($q->th(["$state Members (oldest first)", 'Action']) .
+			$q->td('&nbsp;&nbsp;&nbsp;') .
+			$q->td({-rowspan => 1 + $limit},
+				$q->submit('submit', "$action Selected") ))
+		if !$n++;
+
+	my $member = $row->{ident};
+	$_ = $row->{descr}; s/^\s+//o; s/\s+$//o;
+	my $descr = /\s+([^\s]+)$/o ? "$1, $`" : $_;
+	my $class = ($n %2) ? "a" : "b";
+	$display_list .= sprintf qq{<TR class="$class"><TD>%s %s (%s)</TD><TD>%s</TD></TR>\n},
+		$q->escapeHTML($descr),
+		$q->a({-target=>"VCP", -href=>"/site/show_member.html?member=$member"},
+			$q->code($member)),
+		$q->escapeHTML($row->{affiliation}),
+		$q->checkbox(-name => "member[]",
+			-checked => 0,
+			-value => $member,
+			-label => $action);
+}
+$display_list .=
+	$q->p($q->em('Nothing here, try going back or changing the criteria'))
+	unless $n > 0;
+$display_list .= $q->end_table .
+	$q->end_form;
+
+#
+# allow selection of which kind of thing to display
+#
+print $q->start_form(-action => 'vouch_cp.html'), $q->start_table;
+print $q->Tr($q->td(['Criteria:',
+	join("\n", $q->radio_group(-name => 'state',
+		-values => ['Unmarked', 'Dunno', 'Vouched'],
+		-default => $state,
+		-linebreak => 0
+		-rows => 1))]),
+	$q->td('&nbsp;&nbsp;&nbsp;'),
+	$q->td({-rowspan => 2},
+		$q->submit('submit', 'Change Criteria') .
+		$q->br() ));
+print $q->Tr($q->td(['Limit:',
+	join("\n", $q->radio_group(-name => 'limit',
+		-values => ['10', '25', '50'],
+		-default => $limit,
+		-linebreak => 0,
+		-rows => 1))] ));
+print $q->end_table;
+print $q->end_form;
+print $q->hr, $display_list;
+
+#Display pagination
+print $q->start_table;
+my $page = ($offset / $limit) + 1;
+if($page > 1) {
+	#Prev Page < 
+	my $noff = $offset - $limit;
+	print "<A HREF=vouch_cp.html?state=$state&limit=$limit&offset=$noff>";
+	print "&lt;</A>";
+}
+print " - $page - ";
+if($n == $limit){
+	#Next Page > 
+	my $noff = $offset + $limit;
+	print "<A HREF=vouch_cp.html?state=$state&limit=$limit&offset=$noff>";
+	print "&gt;</A>";
+}
+print $q->end_table;
+
+</%perl>
+
+<%shared>
+my $q = undef;
+my $dbh = undef;
+my $tg = undef;
+</%shared>
+
+<%init>
+$q = $Mech->{cgi};
+$dbh = $Site->{dbh};
+$tg = $Site->{tg};
+</%init>

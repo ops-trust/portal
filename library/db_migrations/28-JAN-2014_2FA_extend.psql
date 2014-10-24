@@ -1,0 +1,11 @@
+ALTER TABLE second_factor_types ADD COLUMN descr TEXT;
+
+UPDATE second_factor_types SET descr = 'Time based One Time Password - TOPT' WHERE type = 'TOTP';
+UPDATE second_factor_types SET descr = 'HMAC based One Time Password - HOPT' WHERE type = 'HOTP';
+
+ALTER TABLE second_factor_types ALTER COLUMN descr SET NOT NULL;
+
+INSERT INTO second_factor_types VALUES ('SOTP','static single use codes');
+
+ALTER TABLE second_factors ADD descr TEXT;
+

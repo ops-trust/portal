@@ -1,0 +1,12 @@
+; To preven burte forcing we need to keep track of the source IP of login attempts. 
+CREATE TABLE openid_source_cache (
+   src_ip          INET            NOT NULL UNIQUE PRIMARY KEY,
+   last_try        TIMESTAMP       NOT NULL,
+   attempt_count   INT             NOT NULL DEFAULT 1
+);
+
+GRANT ALL ON openid_source_cache TO www,sysadmin;
+
+ALTER TABLE member ADD login_attempts INT NOT NULL DEFAULT 0;
+ALTER TABLE member ADD login_try_begin TIMESTAMP ;
+

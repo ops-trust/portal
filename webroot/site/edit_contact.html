@@ -1,0 +1,519 @@
+<%args>
+$ident => ''
+$descr => ''
+$affiliation => ''
+$pgpkey_id => ''
+$tz_info => ''
+$im_info => ''
+$tel_info => ''
+$sms_info => ''
+$post_info => ''
+$bio_info => ''
+$airport => ''
+$no_email => ''
+$furlough => ''
+$hide_email => ''
+$passwd1_chat => ''
+$passwd2_chat => ''
+$submit => ''
+$form_id => ''
+$language_iso => ''
+$delete_language_iso => ''
+$language_skill => ''
+</%args>
+
+<H3>Edit Contact Information</H3>
+<%perl>
+my $postscript = '';
+my @stmts = ();
+if ($submit eq 'Apply') {
+#	$m->abort(403) unless $form_id eq $Mech->{sess}->param('form_id');
+
+	my $db_ident = length($ident) ? $dbh->quote($ident) : 'NULL';
+	my $keyring_data = '';
+	# portrait
+
+	my $fh = $q->upload('face');
+	if (defined $fh) {
+		my $face = ${common::faces}.'/'.$Site->{uuid};
+		unlink "${face}.source";
+		open(OUT, ">${face}.source");
+		while (read($fh, my $buffer, 4096)) {
+			print OUT $buffer;
+		}
+		close(OUT);
+		&common::make_thumbnail($dbh,$db_ident,$face, 1);
+	}
+	$fh = undef;
+
+	# pgp key
+
+	$fh = $q->upload('pgpkey');
+	if (defined $fh) {
+		# XXX: Storing into a file can be removed
+		#      as storing into the DB is enough
+		#
+		# XXX: We load any key supplied by the user,
+		#      not only the selected/matching one
+		unlink "${keyring}.temp";
+		my $len = 0;
+		my $keyfile = undef;
+		open($keyfile, ">${keyring}.temp");
+		while (read($fh, my $buffer, 4096)) {
+			print {$keyfile} $buffer;
+			$len += length $buffer;
+
+			# store it in a string for db storage
+			$keyring_data .= $buffer;
+		}
+		close($keyfile);
+		# Only accept ASCII armored data
+		if ($len == 0) {
+			$postscript .= $q->hr .
+				$q->p('Empty file, not installed.');
+		} elsif ($keyring_data =~ /PGP PUBLIC KEY/) {
+			$postscript .= $q->hr .
+				$q->p('loading ASCII armored keys');
+			unlink &common::gpgcmd_myfiles($Site->{uuid});
+			my $cmd = "$my_gpgcmd --ignore-time-conflict ".
+				"--import ${keyring}.temp 2>&1";
+			$postscript .= $q->hr;
+			foreach (`$cmd`) {
+				chomp;
+				# XXX: should hide our paths
+				$postscript .= $q->code($q->escapeHTML($_)) .
+					$q->br;
+			}
+			#List e-mail addresses connected to this UUID
+			my $db_uuid = $dbh->quote($Site->{uuid});
+			foreach my $detail (@{$dbh->selectall_arrayref(qq{
+				SELECT me.email, m.ident
+				FROM member_email me
+				JOIN member m ON m.ident = me.member
+				WHERE m.uuid = $db_uuid
+			}, {Slice => {}})}) {
+				my $email = $detail->{'email'};
+				my $keyid = (&common::gpgcmd_mykeys($Site->{uuid},$email))[0];
+				my @expire = &common::gpgcmd_keyexpire($Site->{uuid},$keyid);
+				$postscript .= $q->hr .
+					$q->p("Loading Key: $keyid for $email\n") .
+					$q->br;
+				my $db_expire = @expire ? $dbh->quote($expire[0]) : 'NULL';
+				my $db_keyid = $dbh->quote($keyid);
+				my $db_email = $dbh->quote($email);
+				my $db_keydata = $dbh->quote($keyring_data);
+				my $db_member = $dbh->quote($detail->{'ident'});
+				push @stmts, qq{
+					UPDATE member_email me
+					   SET
+					   	pgpkey_id = $db_keyid,
+						pgpkey_expire = $db_expire,
+						keyring = $db_keydata,
+						keyring_update_at = now()
+					 WHERE me.email = $db_email
+					   AND me.member = $db_member;
+				};
+			}
+		} else {
+			$postscript .= $q->hr .
+				$q->p('We only accept ASCII armored keys');
+		}
+		rename "${keyring}.temp",
+			$common::tmpdir.'/'.$Site->{member}.'.temp';
+	}
+	# form variables
+
+	$pgpkey_id =~ s/^0x//io;
+	$pgpkey_id = sprintf "%08x", eval '0x'.$pgpkey_id;
+	my @pgpkeys = &common::gpgcmd_mykeys($Site->{uuid}, '');
+	my %pgpkeys = map { sprintf("%08x", eval '0x'.$_) => '' } @pgpkeys;
+	if ($#pgpkeys == 0) {
+		# there is only one key in the ring, override form choice.
+		$pgpkey_id = $pgpkeys[0];
+	} elsif (!defined $pgpkeys{$pgpkey_id}) {
+		# selected key doesn't exist, do not use it.
+		$pgpkey_id = '';
+	}
+
+	my $db_descr = $dbh->quote($descr);
+	my $db_affiliation = $dbh->quote($affiliation);
+	my $db_pgpid = length($pgpkey_id) ? $dbh->quote($pgpkey_id) : 'NULL';
+	my $db_tz = $dbh->quote($tz_info);
+	my $db_im = $dbh->quote($im_info);
+	my $db_tel = $dbh->quote($tel_info);
+	my $db_smsinfo = length($sms_info) ? $dbh->quote($sms_info) : 'NULL';
+	my $db_post = $dbh->quote($post_info);
+	my $db_bio = $dbh->quote($bio_info);
+	my $db_airport = length($airport) ? $dbh->quote($airport) : 'NULL';
+	my $db_noemail = ($no_email eq 't') ? 'TRUE' : 'FALSE';
+	my $db_furlough = ($furlough eq 't') ? 'TRUE' : 'FALSE';
+	my $db_hideemail = ($hide_email eq 't') ? 'TRUE' : 'FALSE';
+	my $db_passwd_chat = '';
+	$db_airport =~ tr/a-z/A-Z/;
+	if (length($passwd1_chat) != 0 || length($passwd2_chat) != 0) {
+		if ($passwd1_chat ne $passwd2_chat) {
+			$postscript .= $q->hr() .
+				$q->p('Chat Password mismatch');
+		} else {
+			my $passwd_chat = &common::mkpw_portal($passwd1_chat);
+			$db_passwd_chat = ', passwd_chat = ' .
+					 $dbh->quote($passwd_chat);
+		}
+	}
+	push @stmts, qq{
+		UPDATE member m
+		   SET	
+			ident = $db_ident,
+			descr = $db_descr,
+			affiliation = $db_affiliation,
+			tz_info = $db_tz,
+			im_info = $db_im,
+			tel_info = $db_tel,
+			sms_info = $db_smsinfo,
+			post_info = $db_post,
+			bio_info = $db_bio,
+			airport = $db_airport,
+			no_email = $db_noemail,
+			furlough = $db_furlough,
+			hide_email = $db_hideemail
+			$db_passwd_chat
+		 WHERE
+			m.ident = $Site->{db_member};
+	}, qq{
+		UPDATE member_email me
+		   SET pgpkey_id = $db_pgpid
+		  FROM member_trustgroup mt
+		 WHERE ROW(me.member, me.email, $tg->{db_ident}) =
+			ROW(mt.member, mt.email, mt.trustgroup)
+		   AND me.member = $Site->{db_member};
+	};
+
+	if (length($keyring_data) != 0) {
+		my $db_keyring_data = $dbh->quote($keyring_data);
+		
+		push @stmts, qq{
+			UPDATE member_email me
+			   SET keyring = $db_keyring_data,
+			       keyring_update_at = NOW()
+			  FROM member_trustgroup mt
+			 WHERE ROW(me.member, me.email, $tg->{db_ident}) =
+				ROW(mt.member, mt.email, mt.trustgroup)
+			   AND me.member = $Site->{db_member};
+		};
+	}
+
+	my $errstr = &common::audited_do($dbh, $ident, @stmts);
+	if (length $errstr) {
+		$postscript .= $q->hr() . $q->p("Failure: $errstr");
+	} else {
+		&common::state_mon($Site->{member});
+		$postscript .= $q->hr() . $q->p('Profile has been updated.');
+		$Site->{member} = $ident;
+		$Site->{db_member} = $dbh->quote($Site->{member});;
+		$Mech->{sess}->param('member', $Site->{member});
+		$Mech->{sess}->flush();
+	}
+	my @detail_stmts;
+	foreach my $detail (@{$dbh->selectall_arrayref(qq{
+		SELECT mdt.display_name,mdt.type,md.value,md.member
+		FROM  member_detail_types mdt
+		LEFT OUTER JOIN member_details md on mdt.type=md.type
+			AND md.member = $Site->{db_member}
+		ORDER BY mdt.display_name
+	}, {Slice => {}})}) {
+		my $value = $q->param('details['.$detail->{type}.']');
+	        my $db_type = $dbh->quote($detail->{type});
+	        my $db_value = $dbh->quote($value);
+		if ($detail->{member}){
+			if ($value){
+				if ($value ne $detail->{value}){
+					push @detail_stmts, "UPDATE member_details
+						SET VALUE = $db_value
+						WHERE member = $Site->{db_member}
+							AND type = $db_type";
+				}
+			} else {
+				push @detail_stmts, "DELETE FROM member_details
+					WHERE member = $Site->{db_member}
+						AND type = $db_type";
+			}
+		} else {
+			if ($value){
+				push @detail_stmts, "INSERT INTO member_details (member,type,value) 
+					VALUES ($Site->{db_member},$db_type,$db_value)";
+			}
+		}
+	}
+	if (@detail_stmts){
+		my $errstr = &common::audited_do($dbh, $ident, @detail_stmts);
+		if (length $errstr) {
+			$postscript .= $q->hr() . $q->p("Failure: $errstr");
+		} else {
+			$postscript .= $q->hr() . $q->p('Profile details have been updated.');
+		}
+	}
+} elsif ($submit eq 'Delete Language'){
+	my $iso = $dbh->quote($delete_language_iso);
+	my @stmts;
+	push @stmts, "DELETE FROM member_language_skill
+		WHERE member = $Site->{db_member}
+			AND language = $iso";
+	my $errstr = &common::audited_do($dbh, $Site->{member}, @stmts);
+        if (length $errstr) {
+                $postscript .= $q->hr() . $q->p("Failure: $errstr");
+        } else {
+                $postscript .= $q->hr() . $q->p('Profile has been updated.');
+        }
+} elsif ($submit eq 'Add Language'){
+	my $iso = $dbh->quote($language_iso);
+	my $skill = $dbh->quote($language_skill);
+	my @stmts;
+	push @stmts, "INSERT INTO member_language_skill (member,language,skill) 
+		VALUES ($Site->{db_member},$iso,$skill)";
+	my $errstr = &common::audited_do($dbh, $Site->{member}, @stmts);
+        if (length $errstr) {
+                $postscript .= $q->hr() . $q->p("Failure: $errstr");
+        } else {
+                $postscript .= $q->hr() . $q->p('Profile has been updated.');
+        }
+}
+$q->delete_all();
+
+#
+# display
+#
+my $row = $Site->{dbh}->selectrow_hashref(qq{
+	SELECT m.ident, m.descr, m.affiliation, me.pgpkey_id,
+		m.tz_info, m.im_info, m.tel_info, m.sms_info,
+		m.post_info, m.bio_info, m.airport, m.no_email,
+		m.furlough, m.hide_email, mt.email, m.image
+	  FROM member m
+	  JOIN member_trustgroup mt ON ROW(mt.member, mt.trustgroup) =
+		ROW(m.ident, $tg->{db_ident})
+	  JOIN member_email me ON ROW(me.member, me.email) =
+		ROW(mt.member, mt.email)
+	 WHERE m.ident = $Site->{db_member}
+});
+if (!defined $row) {
+	print $q->p("No contact information on file?");
+	return;
+}
+$form_id = &common::new_form_id();
+$Mech->{sess}->param('form_id', $form_id);
+$Mech->{sess}->flush();
+
+my $languages;
+foreach my $language (@{$dbh->selectall_arrayref(qq{
+        SELECT l.name,mls.language,mls.skill
+        FROM  languages l, member_language_skill mls
+        WHERE l.iso_639_1 = mls.language
+                AND mls.member = $Site->{db_member}
+        ORDER BY mls.language
+}, {Slice => {}})}) {
+	my $delete_button = $q->start_form(-action => '#'.$language->{language}) .
+                        $q->hidden({-override => 1}, 'form_id', $form_id) .
+                        $q->submit('submit', 'Delete Language') .
+                        $q->hidden('member', $Site->{db_member}) .
+                        $q->hidden('delete_language_iso', $language->{language}) .
+                        $q->end_form ;
+        $languages .= $q->Tr($q->td($language->{name}),$q->td($language->{skill}),$q->td($delete_button));
+};
+my @lang = &common::list_languages($Site->{dbh});
+$languages = $q->td(
+        $q->start_table({-border=>0, -cellspacing=>0, -cellpadding=>0}),
+        $languages,
+	$q->Tr($q->td({-colspan=>3},
+		$q->start_table({-border=>0, -cellspacing=>0, -cellpadding=>0}),
+		$q->Tr( 
+			$q->td( $q->popup_menu(-name => 'language_iso',
+				-values => $lang[0],
+				-labels => $lang[1],
+				-override => 1)).
+			$q->td( $q->popup_menu(-name => 'language_skill',
+				-values =>  &common::list_language_levels($Site->{dbh}),
+				-override => 1)).
+			$q->td( $q->submit('submit','Add Language')) 
+		),
+		$q->end_table
+	)),
+       	$q->end_table
+);
+
+my $member_details = '';
+foreach my $detail (@{$dbh->selectall_arrayref(qq{
+	SELECT mdt.display_name,mdt.type,md.value
+        FROM  member_detail_types mdt 
+	LEFT OUTER JOIN member_details md on mdt.type=md.type 
+		AND md.member = $Site->{db_member}
+        ORDER BY mdt.display_name
+}, {Slice => {}})}) {
+        $member_details .= $q->Tr(
+		$q->td($detail->{display_name},":"),
+		$q->td($q->textfield(-name => 'details['.$detail->{type}.']',
+                                -default => $detail->{value},
+                                -override => 1,
+                                -size => 65,
+                                -maxlength => 100)) );
+}
+
+my $image_src = "data:image/png;base64,";
+if (defined($row->{image})) {
+        $image_src .= $row->{image};
+} else {
+        my $image_buffer = "";
+	my $image = undef;
+        open($image, "<$common::sitedir/default_face.png");
+        while (read($image, my $buffer, 4096)) {
+                $image_buffer .= $buffer;
+        }
+        close($image);
+        $image_src .= MIME::Base64::encode_base64($image_buffer,'');
+}
+
+print $q->start_multipart_form,
+	$q->hidden({-override => 1}, 'form_id', $form_id),
+	$q->table({-border => 0}, $q->Tr({-align=>'LEFT', -valign=>'MIDDLE'}, [
+		$q->td('Member ID:') .
+			$q->td({-colspan=>2},$q->textfield(-name => 'ident',
+				-default => $row->{ident},
+				-override => 1,
+				-size => 65,
+				-maxlength => 100) .
+			'&nbsp;&nbsp;(<EM>e.g.,</EM> <CODE>johnsmith</CODE>)'),
+		$q->td('Full name:') .
+			$q->td($q->textfield(-name => 'descr',
+				-default => $row->{descr},
+				-override => 1,
+				-size => 65,
+				-maxlength => 100)) .
+			$q->td({-rowspan => 8}, $q->img({-alt=>'Portrait',
+				 -src => $image_src})),
+		$q->td('E-mail:') .
+			$q->td("<A HREF=/site/edit_email.html>Manage E-mail addresses</A>"),
+		$q->td('Affiliation:') .
+			$q->td($q->textfield(-name => 'affiliation',
+				-default => $row->{affiliation},
+				-override => 1,
+				-size => 30,
+				-maxlength => 30)),
+		$q->td('PGP Key ID:') .
+			$q->td($q->popup_menu(-name => 'pgpkey_id',
+				-values => [&common::gpgcmd_mykeys(
+					$Site->{uuid}, $row->{email})],
+				-default => $row->{pgpkey_id},
+				-override => 1)),
+		$q->td('Timezone info:') .
+			$q->td($q->textfield(-name => 'tz_info',
+				-default => $row->{tz_info},
+				-override => 1,
+				-size => 65,
+				-maxlength => 100)),
+		$q->td('I.M. info:') .
+			$q->td($q->textfield(-name => 'im_info',
+				-default => $row->{im_info},
+				-override => 1,
+				-size => 65,
+				-maxlength => 100)),
+		$q->td('Phone info:') .
+			$q->td($q->textfield(-name => 'tel_info',
+				-default => $row->{tel_info},
+				-override => 1,
+				-size => 65,
+				-maxlength => 100)),
+		$q->td('SMS info:') .
+			$q->td($q->textfield(-name => 'sms_info',
+				-default => $row->{sms_info},
+				-override => 1,
+				-size => 30,
+				-maxlength => 100).
+			'&nbsp;&nbsp;(<EM>e.g.,</EM> <CODE>+1.650.555.1212</CODE>)'),
+		$q->td('Postal info:') .
+			$q->td($q->textfield(-name => 'post_info',
+				-default => $row->{post_info},
+				-override => 1,
+				-size => 65,
+				-maxlength => 100)),
+		$q->td('Biography:') .
+			$q->td({-colspan=>2}, $q->textarea(-name => 'bio_info',
+				-default => $row->{bio_info},
+				-override => 1,
+				-rows => 5,
+				-columns => 65)),
+		$q->td('Home Airport:') .
+			$q->td({-colspan=>2}, $q->textfield(-name=>'airport',
+				-default => $row->{airport},
+				-override => 1,
+				-size => 3,
+				-maxlength => 3)),
+		$q->td('Email status:') .
+			$q->td({-colspan=>2},
+				$q->checkbox(-name => 'no_email',
+					-checked => ($row->{no_email}),
+					-value => 't',
+					-label => qq{E-mail is disabled due
+						to SMTP errors})),
+		$q->td('Furlough:') .
+			$q->td({-colspan=>2},
+				$q->checkbox(-name => 'furlough',
+					-checked => ($row->{furlough}),
+					-value => 't',
+					-label => qq{Extended holiday or
+						furlough})),
+		$q->td('Email hiding:') .
+			$q->td({-colspan=>2},
+				$q->checkbox(-name => 'hide_email',
+					-checked => ($row->{hide_email}),
+					-value => 't',
+					-label => qq{Hide my domain name when
+						forwarding group e-mails})),
+		$q->td('Upload Portrait:') .
+			$q->td({-colspan => 2}, $q->filefield(-name => 'face',
+				-default => '') .
+		'&nbsp;&nbsp;(can be any image, we\'ll make a thumbnail)'),
+		$q->td('Upload PGP Key:') .
+			$q->td({-colspan => 2}, $q->filefield(-name => 'pgpkey',
+				-default => '') .
+		'&nbsp;&nbsp;(must include a key matching your e-mail addr)'),
+		$q->td('Set Chat Password:') .
+			$q->td({-colspan => 2},
+				$q->em('Once&nbsp;') .
+				$q->password_field(-name => 'passwd1_chat',
+							-default => '',
+							-override => 1,
+							-size => 10,
+							-maxlength => 50) .
+				$q->em('&nbsp;Twice&nbsp;') .
+				$q->password_field(-name => 'passwd2_chat',
+							-default => '',
+							-override => 1,
+							-size => 10,
+							-maxlength => 50)),
+		$member_details,
+        	$q->td('Language Skills:',$languages),
+	])),
+	$q->submit('submit', 'Apply'), $q->end_form,
+	$q->table({-border => 0}, $q->Tr({-align=>'LEFT', -valign=>'MIDDLE'}, [
+	])),
+	
+	$postscript;
+</%perl>
+
+<%shared>
+my $q = undef;
+my $dbh = undef;
+my $tg = undef;
+my $keyring = undef;
+my $my_gpgcmd = undef;
+</%shared>
+
+<%init>
+$q = $Mech->{cgi};
+$dbh = $Site->{dbh};
+$tg = $Site->{tg};
+$keyring = sprintf '%s/%s', &common::gpg_key_path($Site->{uuid}), $Site->{uuid};
+$my_gpgcmd = &common::gpgcmd_user($Site->{uuid});
+</%init>
+
+<%method vetting_not_needed>
+# tells sitehandler.mas:request_ok that we don't need vetting here
+</%method>

@@ -1,0 +1,119 @@
+<%args>
+$ml => ''
+$submit => ''
+$form_id => ''
+</%args>
+
+<H3><%$tg->{shortname}%> Mailing Lists</H3>
+
+<%perl>
+$q->delete_all();
+my $postscript = '';
+my $stmts = '';
+my $db_ml = $dbh->quote($ml);
+#if (length $submit) {
+#	$m->abort(403) unless $form_id eq $Mech->{sess}->param('form_id');
+#}
+if ($submit eq 'Subscribe') {
+	$stmts .= qq{
+		INSERT INTO member_mailinglist
+			(member, lhs, trustgroup)
+		VALUES ($Site->{db_member}, $db_ml, $tg->{db_ident});
+	};
+} elsif ($submit eq 'Unsubscribe') {
+	$stmts .= qq{
+		DELETE FROM member_mailinglist mm
+		 WHERE ROW(mm.member, mm.lhs, mm.trustgroup) =
+			ROW($Site->{db_member}, $db_ml, $tg->{db_ident});
+	};
+}
+if (length $stmts) {
+	my $errstr = &common::audited_do($dbh, $Site->{member}, $stmts);
+	if (length $errstr) {
+		$postscript .= $q->hr() . $q->p("Failure: $errstr");
+	} else {
+		$postscript .= $q->hr() . $q->p('Profile has been updated.');
+	}
+}
+
+my %ml_all = ( );
+foreach (@{$dbh->selectall_arrayref(qq{
+	SELECT lhs, descr
+	  FROM mailinglist ml
+	 WHERE ml.can_add_self
+	   AND ml.trustgroup = $tg->{db_ident}
+	ORDER BY ml.lhs
+}, {Slice => {}})}) {
+	my ($addr, $comment) = &common::email_addr($tg, $_->{lhs});
+	$ml_all{$_->{lhs}} = $_->{descr}.' <'.$addr.'>';
+}
+my %ml_cur = ( );
+foreach (@{$dbh->selectall_arrayref(qq{
+	SELECT lhs
+	  FROM member_mailinglist mm
+	 WHERE ROW(mm.member, mm.trustgroup) =
+		ROW($Site->{db_member}, $Site->{tg}->{db_ident})
+}, {Slice => {}})}) {
+	$ml_cur{$_->{lhs}} = '';
+}
+
+$form_id = &common::new_form_id();
+$Mech->{sess}->param('form_id', $form_id);
+$Mech->{sess}->flush();
+
+print $q->start_table({-cellpadding=>3, -cellspacing=>3, -rules=>'ROWS'});
+foreach (@{$dbh->selectall_arrayref(qq{
+	SELECT ml.lhs AS lhs, ml.descr AS descr
+	  FROM mailinglist ml
+	 WHERE ml.trustgroup = $Site->{tg}->{db_ident}
+	   AND NOT ml.virtual
+	ORDER BY ml.lhs
+}, {Slice => {}})}) {
+	my ($addr, $comment) = &common::email_addr($tg, $_->{lhs});
+	my $descr = $q->escapeHTML($_->{descr});
+	my $actions = $q->start_form .
+		$q->hidden({-override => 1}, 'form_id', $form_id) . "\t\t" .
+		$q->hidden(-name=>'ml', -default=>$_->{lhs}, -override=>1) .
+		"\n\t\t" . $q->submit('submit', 'View') . "\n";
+	if (defined $ml_all{$_->{lhs}}) {
+		$actions .= '&nbsp;' .
+			$q->submit('submit', (defined $ml_cur{$_->{lhs}}
+				? 'Unsubscribe' : 'Subscribe'));
+	}
+	$actions .= $q->end_form;
+	print $q->Tr(
+		$q->td({-align=>'RIGHT'}, $q->code($addr)) .
+		$q->td('') . "\n\t" .
+		$q->td($descr) .
+		$q->td('') . "\n\t" .
+		$q->td($q->a({href=>"/site/emit_mlkey.html?lhs=$_->{lhs}"},
+			'PGP Key')) .
+		$q->td('') . "\n\t" .
+		$q->td({-valign=>'MIDDLE'}, $actions)
+	), "\n";
+}
+print $q->end_table, $postscript;
+
+if ($submit eq 'View') {
+	print $q->h5($q->code($ml).':');
+	my $db_ml = $dbh->quote($ml);
+	print $q->start_pre;
+	foreach (common::find_recipients($dbh, $tg, $ml)) {
+		printf "\"%s\" &lt;%s&gt;\n",
+			$q->escapeHTML($_->{descr}), $_->{email};
+	}
+	print $q->end_pre;
+}
+</%perl>
+
+<%shared>
+my $q = undef;
+my $dbh = undef;
+my $tg = undef;
+</%shared>
+
+<%init>
+$q = $Mech->{cgi};
+$dbh = $Site->{dbh};
+$tg = $Site->{tg};
+</%init>

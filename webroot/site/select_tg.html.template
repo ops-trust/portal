@@ -1,0 +1,127 @@
+<%args>
+$tgname => ''
+$next => ''
+</%args>
+
+<%perl>
+my $redirect = undef;
+
+$tgname = $ftg unless length $tgname || $ntg != 1;
+
+my $supportre = '!supportre!';
+my $wikire = '!wikire!';
+
+$supportre =~ s/\//\\\//g;
+$supportre =~ s/\./\\./g;
+
+$wikire =~ s/\//\\\//g;
+$wikire =~ s/\./\\./g;
+
+my $referrer = $r->header_in('Referer');
+
+if($referrer =~ m/openid.return_to=(.*)$/) {
+	$next = $1;
+}
+
+if ($next =~ /^$supportre/) {
+	$redirect = $next;
+} elsif ($next =~ /^$wikire/) {
+	$redirect = $next;
+	$tgname = $1;
+}
+
+my $postscript = '';
+if (length $tgname) {
+	my $trustgroup = $trustgroups{$tgname};
+	my $db_tgname = $dbh->quote($tgname);
+	if (defined $trustgroup) {
+		$Mech->{sess}->param('trustgroup', $tgname);
+		$Mech->{sess}->param('admin', $trustgroup->{admin});
+		$Mech->{sess}->param('can_see', $trustgroup->{can_see});
+		$Mech->{sess}->param('ntg', $ntg);
+		$Mech->{sess}->flush();
+		$dbh->do(qq{
+			UPDATE member_trustgroup
+				SET activity = NOW()::TIMESTAMP
+			 WHERE ROW(member, trustgroup) =
+				ROW($Site->{db_member}, $db_tgname);
+			UPDATE member
+				SET activity = NOW()::TIMESTAMP
+			 WHERE ident = $Site->{db_member};
+		});
+		if ($redirect =~ /^$supportre/) {
+			$m->redirect($redirect);
+		} elsif ($redirect =~ /^$wikire/) {
+			$m->redirect($redirect);
+		} else {
+			$m->redirect('/');
+		}
+		return;
+	}
+	$postscript .= $q->hr().
+		$q->p('You are not a member of trustgroup '.$q->code($tgname));
+}
+my $printed_header = 0;
+foreach $tgname (sort keys %trustgroups) {
+	if (!$printed_header) {
+		print $q->h3('Select Trust Group:'),
+			$q->start_table({-cellpadding=>3, -cellspacing=>3});
+		$printed_header = 1;
+	}
+	if ($redirect){
+		print $q->Tr($q->td($q->a({
+			-href=>$q->url().'?tgname='.$tgname.'&next='.$redirect},
+				$tgname)) .
+			$q->td($q->em($trustgroups{$tgname}->{descr})));
+	} else {
+		print $q->Tr($q->td($q->a({
+			-href=>$q->url().'?tgname='.$tgname}, $tgname)) .
+			$q->td($q->em($trustgroups{$tgname}->{descr})));
+	}
+}
+if ($printed_header) {
+	print $q->end_table;
+} else {
+	$postscript .= $q->hr().
+		$q->p('You are not a member of any trustgroup');
+}
+print $postscript;
+</%perl>
+
+<%shared>
+my $q = undef;
+my $dbh = undef;
+my %trustgroups = ( );
+my $ntg = 0;
+my $ftg = undef;
+</%shared>
+
+<%init>
+$q = $Mech->{cgi};
+$dbh = $Site->{dbh};
+$ftg = undef;
+foreach my $row (@{$dbh->selectall_arrayref(qq{
+	SELECT mt.trustgroup AS ident, mt.admin, ms.can_see, tg.descr
+	  FROM member_trustgroup mt
+	  JOIN member_state ms ON (ms.ident = mt.state)
+	  JOIN trustgroup tg ON (mt.trustgroup = tg.ident)
+	 WHERE mt.member = $Site->{db_member}
+	   AND ms.can_login
+}, {Slice => {}})}) {
+	$trustgroups{$row->{ident}} = {
+		descr => $row->{descr},
+		admin => $row->{admin},
+		can_see => $row->{can_see}
+	};
+	$ntg++;
+	$ftg = $row->{ident} unless defined $ftg;
+}
+</%init>
+
+<%method tg_not_needed>
+# tells sitehandler.mas:request_ok that we don't need a trustgroup here
+</%method>
+
+<%method vetting_not_needed>
+# tells sitehandler.mas:request_ok that we don't need vetting here
+</%method>

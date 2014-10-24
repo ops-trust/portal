@@ -1,0 +1,16 @@
+-- Starting Version 4
+BEGIN;
+-- Create a user for cclark.
+create user cclark;
+
+-- Grant him sysadmin role.
+grant sysadmin to cclark;
+
+-- Set the db version properly.
+--Update Version. 
+UPDATE schema_metadata 
+   SET value = 5 
+ WHERE value = 4
+   AND key = 'portal_schema_version';
+COMMIT;
+

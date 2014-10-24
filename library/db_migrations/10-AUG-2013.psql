@@ -1,0 +1,3 @@
+ALTER TABLE trustgroup ADD target_invouch INTEGER NOT NULL DEFAULT 0;
+UPDATE trustgroup set target_invouch = min_invouch; 
+ALTER TABLE trustgroup ALTER COLUMN target_invouch DROP DEFAULT;

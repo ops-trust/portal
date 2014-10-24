@@ -1,0 +1,82 @@
+<%method init>
+<%perl>
+my $dbh = &common::get_dbh();
+$Site = {
+	dbh => $dbh
+};
+</%perl>
+</%method>
+
+<%method session_setup>
+<%perl>
+if (defined $Mech->{sess}->param('~logged-in')) {
+	my $db_username = $Site->{dbh}->quote($Mech->{sess}->param('member'));
+
+	my $tgname = $Mech->{sess}->param('trustgroup');
+	if (defined $tgname) {
+		$Site->{tg} = &common::get_tg($Site->{dbh}, $tgname);
+		$Site->{can_see} = $Mech->{sess}->param('can_see');
+		$Site->{admin} = $Mech->{sess}->param('admin');
+	}
+	if (!defined $Mech->{sess}->param('member') ||
+	    !defined $Mech->{sess}->param('change_pw') ||
+	    !defined $Mech->{sess}->param('uuid'))
+	{
+		my ($ident, $change_pw, $uuid, $sysadmin) =
+		    $Site->{dbh}->selectrow_array(qq{
+			SELECT m.ident, m.change_pw, m.uuid, m.sysadmin
+			  FROM member m
+			 WHERE ident = $db_username
+		});
+		$Mech->{sess}->param('member', $ident);
+		$Mech->{sess}->param('change_pw', $change_pw);
+		$Mech->{sess}->param('uuid', $uuid);
+		$Mech->{sess}->param('sysadmin', $sysadmin);
+		$Mech->{sess}->flush();
+	}
+	$Site->{member} = $Mech->{sess}->param('member');
+	$Site->{db_member} = $Site->{dbh}->quote($Site->{member});;
+	$Site->{change_pw} = $Mech->{sess}->param('change_pw');
+	$Site->{uuid} = $Mech->{sess}->param('uuid');
+}
+</%perl>
+</%method>
+
+<%method fini>
+<%perl>
+$Mech->{sess}->flush() if defined $Mech && defined $Mech->{sess};
+&common::drop_dbh($Site->{dbh});
+</%perl>
+</%method>
+
+<%method logout>
+<%perl>
+$r->header_out('Set-Cookie' =>
+	$Mech->{cgi}->cookie(-name => $Mech->{sess}->name,
+			  -value => $Mech->{sess}->id(),
+			  -expires => '-1h',
+			  -httponly => 1,
+			  -secure => 1));
+$Mech->{sess}->delete();
+$Mech->{sess}->flush();
+</%perl>
+</%method>
+
+<%method request_ok>
+<%args>
+$request
+</%args>
+<%perl>
+if (!$request->method_exists('tg_not_needed') &&
+    !defined $Site->{tg})
+{
+	print 'Must first select trustgroup.';
+} elsif (!$request->method_exists('vetting_not_needed') &&
+	 !$Site->{can_see})
+{
+	print 'Must first be vetted.';
+} else {
+	print 'OK';
+}
+</%perl>
+</%method>

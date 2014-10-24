@@ -1,0 +1,224 @@
+CREATE TABLE languages (
+  iso_639_1           VARCHAR(2)    NOT NULL
+                                    UNIQUE,
+  name                TEXT          NOT NULL
+                                    UNIQUE
+);
+
+GRANT SELECT ON TABLE languages to www;
+GRANT ALL ON TABLE languages TO sysadmin;
+
+INSERT INTO languages (iso_639_1,name) values ('aa','Afar');
+INSERT INTO languages (iso_639_1,name) values ('ak','Akan');
+INSERT INTO languages (iso_639_1,name) values ('as','Assamese');
+INSERT INTO languages (iso_639_1,name) values ('ba','Bashkir');
+INSERT INTO languages (iso_639_1,name) values ('bi','Bislama');
+INSERT INTO languages (iso_639_1,name) values ('br','Breton');
+INSERT INTO languages (iso_639_1,name) values ('ch','Chamorro');
+INSERT INTO languages (iso_639_1,name) values ('cs','Czech');
+INSERT INTO languages (iso_639_1,name) values ('da','Danish');
+INSERT INTO languages (iso_639_1,name) values ('ee','Ewe');
+INSERT INTO languages (iso_639_1,name) values ('es','Spanish');
+INSERT INTO languages (iso_639_1,name) values ('ff','Fulah');
+INSERT INTO languages (iso_639_1,name) values ('fr','French');
+INSERT INTO languages (iso_639_1,name) values ('gl','Galician');
+INSERT INTO languages (iso_639_1,name) values ('ha','Hausa');
+INSERT INTO languages (iso_639_1,name) values ('hr','Croatian');
+INSERT INTO languages (iso_639_1,name) values ('hz','Herero');
+INSERT INTO languages (iso_639_1,name) values ('ig','Igbo');
+INSERT INTO languages (iso_639_1,name) values ('io','Ido');
+INSERT INTO languages (iso_639_1,name) values ('iu','Inuktitut');
+INSERT INTO languages (iso_639_1,name) values ('jv','Javanese');
+INSERT INTO languages (iso_639_1,name) values ('ki','Kikuyu');
+INSERT INTO languages (iso_639_1,name) values ('km','Central Khmer');
+INSERT INTO languages (iso_639_1,name) values ('ks','Kashmiri');
+INSERT INTO languages (iso_639_1,name) values ('ky','Kirghiz');
+INSERT INTO languages (iso_639_1,name) values ('li','Limburgan');
+INSERT INTO languages (iso_639_1,name) values ('lu','Luba-Katanga');
+INSERT INTO languages (iso_639_1,name) values ('mi','Maori');
+INSERT INTO languages (iso_639_1,name) values ('my','Burmese');
+INSERT INTO languages (iso_639_1,name) values ('ne','Nepali');
+INSERT INTO languages (iso_639_1,name) values ('no','Norwegian');
+INSERT INTO languages (iso_639_1,name) values ('oc','Occitan (post 1500)');
+INSERT INTO languages (iso_639_1,name) values ('os','Ossetian');
+INSERT INTO languages (iso_639_1,name) values ('ps','Pushto');
+INSERT INTO languages (iso_639_1,name) values ('rn','Rundi');
+INSERT INTO languages (iso_639_1,name) values ('sa','Sanskrit');
+INSERT INTO languages (iso_639_1,name) values ('sg','Sango');
+INSERT INTO languages (iso_639_1,name) values ('sl','Slovenian');
+INSERT INTO languages (iso_639_1,name) values ('sq','Albanian');
+INSERT INTO languages (iso_639_1,name) values ('su','Sundanese');
+INSERT INTO languages (iso_639_1,name) values ('te','Telugu');
+INSERT INTO languages (iso_639_1,name) values ('tk','Turkmen');
+INSERT INTO languages (iso_639_1,name) values ('tr','Turkish');
+INSERT INTO languages (iso_639_1,name) values ('ty','Tahitian');
+INSERT INTO languages (iso_639_1,name) values ('uz','Uzbek');
+INSERT INTO languages (iso_639_1,name) values ('wa','Walloon');
+INSERT INTO languages (iso_639_1,name) values ('yo','Yoruba');
+INSERT INTO languages (iso_639_1,name) values ('ab','Abkhazian');
+INSERT INTO languages (iso_639_1,name) values ('am','Amharic');
+INSERT INTO languages (iso_639_1,name) values ('av','Avaric');
+INSERT INTO languages (iso_639_1,name) values ('be','Belarusian');
+INSERT INTO languages (iso_639_1,name) values ('bm','Bambara');
+INSERT INTO languages (iso_639_1,name) values ('bs','Bosnian');
+INSERT INTO languages (iso_639_1,name) values ('co','Corsican');
+INSERT INTO languages (iso_639_1,name) values ('cu','Church Slavic');
+INSERT INTO languages (iso_639_1,name) values ('de','German');
+INSERT INTO languages (iso_639_1,name) values ('el','Greek, Modern (1453-)');
+INSERT INTO languages (iso_639_1,name) values ('et','Estonian');
+INSERT INTO languages (iso_639_1,name) values ('fi','Finnish');
+INSERT INTO languages (iso_639_1,name) values ('fy','Western Frisian');
+INSERT INTO languages (iso_639_1,name) values ('gn','Guarani');
+INSERT INTO languages (iso_639_1,name) values ('he','Hebrew');
+INSERT INTO languages (iso_639_1,name) values ('ht','Haitian');
+INSERT INTO languages (iso_639_1,name) values ('ia','Interlingua (International Auxiliary Language Association)');
+INSERT INTO languages (iso_639_1,name) values ('ii','Sichuan Yi');
+INSERT INTO languages (iso_639_1,name) values ('is','Icelandic');
+INSERT INTO languages (iso_639_1,name) values ('kj','Kuanyama');
+INSERT INTO languages (iso_639_1,name) values ('kn','Kannada');
+INSERT INTO languages (iso_639_1,name) values ('ku','Kurdish');
+INSERT INTO languages (iso_639_1,name) values ('la','Latin');
+INSERT INTO languages (iso_639_1,name) values ('ln','Lingala');
+INSERT INTO languages (iso_639_1,name) values ('lv','Latvian');
+INSERT INTO languages (iso_639_1,name) values ('mk','Macedonian');
+INSERT INTO languages (iso_639_1,name) values ('mr','Marathi');
+INSERT INTO languages (iso_639_1,name) values ('na','Nauru');
+INSERT INTO languages (iso_639_1,name) values ('ng','Ndonga');
+INSERT INTO languages (iso_639_1,name) values ('nr','Ndebele, South');
+INSERT INTO languages (iso_639_1,name) values ('oj','Ojibwa');
+INSERT INTO languages (iso_639_1,name) values ('pa','Panjabi');
+INSERT INTO languages (iso_639_1,name) values ('pt','Portuguese');
+INSERT INTO languages (iso_639_1,name) values ('ro','Romanian');
+INSERT INTO languages (iso_639_1,name) values ('sc','Sardinian');
+INSERT INTO languages (iso_639_1,name) values ('sm','Samoan');
+INSERT INTO languages (iso_639_1,name) values ('sr','Serbian');
+INSERT INTO languages (iso_639_1,name) values ('sv','Swedish');
+INSERT INTO languages (iso_639_1,name) values ('tg','Tajik');
+INSERT INTO languages (iso_639_1,name) values ('tl','Tagalog');
+INSERT INTO languages (iso_639_1,name) values ('ts','Tsonga');
+INSERT INTO languages (iso_639_1,name) values ('ug','Uighur');
+INSERT INTO languages (iso_639_1,name) values ('ve','Venda');
+INSERT INTO languages (iso_639_1,name) values ('wo','Wolof');
+INSERT INTO languages (iso_639_1,name) values ('za','Zhuang');
+INSERT INTO languages (iso_639_1,name) values ('ae','Avestan');
+INSERT INTO languages (iso_639_1,name) values ('an','Aragonese');
+INSERT INTO languages (iso_639_1,name) values ('ay','Aymara');
+INSERT INTO languages (iso_639_1,name) values ('bg','Bulgarian');
+INSERT INTO languages (iso_639_1,name) values ('bn','Bengali');
+INSERT INTO languages (iso_639_1,name) values ('ca','Catalan');
+INSERT INTO languages (iso_639_1,name) values ('cv','Chuvash');
+INSERT INTO languages (iso_639_1,name) values ('dv','Divehi');
+INSERT INTO languages (iso_639_1,name) values ('en','English');
+INSERT INTO languages (iso_639_1,name) values ('eu','Basque');
+INSERT INTO languages (iso_639_1,name) values ('fj','Fijian');
+INSERT INTO languages (iso_639_1,name) values ('ga','Irish');
+INSERT INTO languages (iso_639_1,name) values ('gu','Gujarati');
+INSERT INTO languages (iso_639_1,name) values ('hi','Hindi');
+INSERT INTO languages (iso_639_1,name) values ('hu','Hungarian');
+INSERT INTO languages (iso_639_1,name) values ('id','Indonesian');
+INSERT INTO languages (iso_639_1,name) values ('ik','Inupiaq');
+INSERT INTO languages (iso_639_1,name) values ('ja','Japanese');
+INSERT INTO languages (iso_639_1,name) values ('ka','Georgian');
+INSERT INTO languages (iso_639_1,name) values ('kk','Kazakh');
+INSERT INTO languages (iso_639_1,name) values ('ko','Korean');
+INSERT INTO languages (iso_639_1,name) values ('kv','Komi');
+INSERT INTO languages (iso_639_1,name) values ('lb','Luxembourgish');
+INSERT INTO languages (iso_639_1,name) values ('lo','Lao');
+INSERT INTO languages (iso_639_1,name) values ('mg','Malagasy');
+INSERT INTO languages (iso_639_1,name) values ('ml','Malayalam');
+INSERT INTO languages (iso_639_1,name) values ('ms','Malay');
+INSERT INTO languages (iso_639_1,name) values ('nb','Bokm\u00E5l, Norwegian');
+INSERT INTO languages (iso_639_1,name) values ('nl','Dutch');
+INSERT INTO languages (iso_639_1,name) values ('nv','Navajo');
+INSERT INTO languages (iso_639_1,name) values ('om','Oromo');
+INSERT INTO languages (iso_639_1,name) values ('pi','Pali');
+INSERT INTO languages (iso_639_1,name) values ('qu','Quechua');
+INSERT INTO languages (iso_639_1,name) values ('ru','Russian');
+INSERT INTO languages (iso_639_1,name) values ('sd','Sindhi');
+INSERT INTO languages (iso_639_1,name) values ('si','Sinhala');
+INSERT INTO languages (iso_639_1,name) values ('sn','Shona');
+INSERT INTO languages (iso_639_1,name) values ('ss','Swati');
+INSERT INTO languages (iso_639_1,name) values ('sw','Swahili');
+INSERT INTO languages (iso_639_1,name) values ('th','Thai');
+INSERT INTO languages (iso_639_1,name) values ('tn','Tswana');
+INSERT INTO languages (iso_639_1,name) values ('tt','Tatar');
+INSERT INTO languages (iso_639_1,name) values ('uk','Ukrainian');
+INSERT INTO languages (iso_639_1,name) values ('vi','Vietnamese');
+INSERT INTO languages (iso_639_1,name) values ('xh','Xhosa');
+INSERT INTO languages (iso_639_1,name) values ('zh','Chinese');
+INSERT INTO languages (iso_639_1,name) values ('af','Afrikaans');
+INSERT INTO languages (iso_639_1,name) values ('ar','Arabic');
+INSERT INTO languages (iso_639_1,name) values ('az','Azerbaijani');
+INSERT INTO languages (iso_639_1,name) values ('bh','Bihari languages');
+INSERT INTO languages (iso_639_1,name) values ('bo','Tibetan');
+INSERT INTO languages (iso_639_1,name) values ('ce','Chechen');
+INSERT INTO languages (iso_639_1,name) values ('cr','Cree');
+INSERT INTO languages (iso_639_1,name) values ('cy','Welsh');
+INSERT INTO languages (iso_639_1,name) values ('dz','Dzongkha');
+INSERT INTO languages (iso_639_1,name) values ('eo','Esperanto');
+INSERT INTO languages (iso_639_1,name) values ('fa','Persian');
+INSERT INTO languages (iso_639_1,name) values ('fo','Faroese');
+INSERT INTO languages (iso_639_1,name) values ('gd','Gaelic');
+INSERT INTO languages (iso_639_1,name) values ('gv','Manx');
+INSERT INTO languages (iso_639_1,name) values ('ho','Hiri Motu');
+INSERT INTO languages (iso_639_1,name) values ('hy','Armenian');
+INSERT INTO languages (iso_639_1,name) values ('ie','Interlingue');
+INSERT INTO languages (iso_639_1,name) values ('it','Italian');
+INSERT INTO languages (iso_639_1,name) values ('kg','Kongo');
+INSERT INTO languages (iso_639_1,name) values ('kl','Kalaallisut');
+INSERT INTO languages (iso_639_1,name) values ('kr','Kanuri');
+INSERT INTO languages (iso_639_1,name) values ('kw','Cornish');
+INSERT INTO languages (iso_639_1,name) values ('lg','Ganda');
+INSERT INTO languages (iso_639_1,name) values ('lt','Lithuanian');
+INSERT INTO languages (iso_639_1,name) values ('mh','Marshallese');
+INSERT INTO languages (iso_639_1,name) values ('mn','Mongolian');
+INSERT INTO languages (iso_639_1,name) values ('mt','Maltese');
+INSERT INTO languages (iso_639_1,name) values ('nd','Ndebele, North');
+INSERT INTO languages (iso_639_1,name) values ('nn','Norwegian Nynorsk');
+INSERT INTO languages (iso_639_1,name) values ('ny','Chichewa');
+INSERT INTO languages (iso_639_1,name) values ('or','Oriya');
+INSERT INTO languages (iso_639_1,name) values ('pl','Polish');
+INSERT INTO languages (iso_639_1,name) values ('rm','Romansh');
+INSERT INTO languages (iso_639_1,name) values ('rw','Kinyarwanda');
+INSERT INTO languages (iso_639_1,name) values ('se','Northern Sami');
+INSERT INTO languages (iso_639_1,name) values ('sk','Slovak');
+INSERT INTO languages (iso_639_1,name) values ('so','Somali');
+INSERT INTO languages (iso_639_1,name) values ('st','Sotho, Southern');
+INSERT INTO languages (iso_639_1,name) values ('ta','Tamil');
+INSERT INTO languages (iso_639_1,name) values ('ti','Tigrinya');
+INSERT INTO languages (iso_639_1,name) values ('to','Tonga (Tonga Islands)');
+INSERT INTO languages (iso_639_1,name) values ('tw','Twi');
+INSERT INTO languages (iso_639_1,name) values ('ur','Urdu');
+INSERT INTO languages (iso_639_1,name) values ('vo','Volap\u00FCk');
+INSERT INTO languages (iso_639_1,name) values ('yi','Yiddish');
+INSERT INTO languages (iso_639_1,name) values ('zu','Zulu');
+
+CREATE TABLE language_skill (
+  skill   TEXT    NOT NULL
+                  UNIQUE,
+  seq	  INTEGER NOT NULL
+                  UNIQUE
+);
+GRANT SELECT ON TABLE language_skill to www;
+GRANT ALL ON TABLE language_skill TO sysadmin;
+
+INSERT INTO language_skill (skill,seq) VALUES ('native',4);
+INSERT INTO language_skill (skill,seq) VALUES ('expert',3);
+INSERT INTO language_skill (skill,seq) VALUES ('intermediate',2);
+INSERT INTO language_skill (skill,seq) VALUES ('basic',1);
+
+CREATE TABLE member_language_skill (
+  member   TEXT  NOT NULL REFERENCES member(ident)
+                   ON UPDATE CASCADE
+                   ON DELETE CASCADE,
+  language TEXT  NOT NULL REFERENCES languages(iso_639_1)
+                   ON UPDATE CASCADE
+                   ON DELETE CASCADE,
+  skill    TEXT NOT NULL REFERENCES language_skill(skill)
+                   ON UPDATE CASCADE
+                   ON DELETE CASCADE,
+  entered  TIMESTAMP NOT NULL DEFAULT NOW()::TIMESTAMP
+);
+
+GRANT ALL ON TABLE member_language_skill TO sysadmin;
+GRANT ALL ON TABLE member_language_skill TO www;

@@ -1,0 +1,1234 @@
+# common.pm -- shared code for OPS-TRUST
+
+# This file is part of the Ops-T Portal.
+#
+#   Copyright 2014 Operations Security Administration, Inc.
+#
+#   Licensed under the Apache License, Version 2.0 (the "License");
+#   you may not use this file except in compliance with the License.
+#   You may obtain a copy of the License at
+#
+#       http://www.apache.org/licenses/LICENSE-2.0
+#
+#   Unless required by applicable law or agreed to in writing, software
+#   distributed under the License is distributed on an "AS IS" BASIS,
+#   WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+#   See the License for the specific language governing permissions and
+#   limitations under the License.
+#
+
+package common;
+
+use strict;
+use warnings;
+use DBI;
+use Sys::Hostname;
+use DateTime::Format::Mail;
+use DateTime::Format::Pg;
+use GnuPG::Interface;
+use GnuPG::Options;
+use IO::Handle;
+use IO::File;
+use Mail::SendEasy;
+use MIME::Base64 qw(encode_base64);
+use File::Path qw(make_path);
+use File::Temp;
+use Text::Wrap;
+use Data::UUID;
+use Sys::Hostname;
+
+our ($test_mode, $title, $hostname, $domain,
+	$dbhost, $dbport, $dbname,
+	$hostmaster, $sender, $portal_url);
+
+our $wiki = '!wiki!';
+our $pgpkeys = '!webvar!/pgpkeys';
+our $badpgp = '!webvar!/badpgp';
+our $sitedir = '!sitedir!';
+our $tmpdir = '!webvar!/tmp';
+our $ml_keys = '!webvar!/ml_keys';
+our $faces = '/tmp';
+our $gpgcmd_format = '/usr/bin/gpg --batch --no-tty --no-default-keyring ' .
+		'--display-charset utf-8 --no-secmem-warning ' .
+		'--no-permission-warning --homedir %s';
+our $gpgcmd_ml =  '/usr/bin/gpg --batch --no-tty --no-default-keyring ' .
+		'--display-charset utf-8 --no-secmem-warning ' .
+		'--no-permission-warning --homedir ' . ${ml_keys};
+our $signature_file = '!library!/signature';
+our $www_uid = !wwwuid!;
+our $www_gid = !wwwgid!;
+
+BEGIN {
+	use Exporter   ();
+	our ($VERSION, @ISA, @EXPORT, @EXPORT_OK, %EXPORT_TAGS);
+
+	# set the version for version checking
+	$VERSION     = 1.00;
+
+	@ISA         = qw(Exporter);
+	@EXPORT      = qw(&get_tg &get_dbh &drop_dbh &audit_enter &audited_do
+			$pgpkeys $faces &gpgcmd &gpgcmd_user &gpgcmd_mykeys
+			&gpg_allkeys &state_mon &new_form_id &list_languages
+			&ts_rfc822_to_sql &rand_str &list_language_levels
+			&list_second_factor_types &gpg_encrypt &gpg_decrypt
+			&gpgcmd_keyexpire &gpg_key_path &gpg_key_present
+			&gpg_mlkey_present);
+	%EXPORT_TAGS = ( );     # eg: TAG => [ qw!name1 name2! ],
+	@EXPORT_OK   = qw( );
+
+	$test_mode = 0;		# means, do not send e-mail
+	$title = '!brand!';
+	$hostname = Sys::Hostname::hostname;
+	$domain = '!domain!';
+	$dbhost = '!pghost!';
+	$dbport = '!pgport!';
+	$dbname = '!pgname!';
+	$hostmaster = 'hostmaster@'.$domain;
+	$sender = 'mail-handler@'.$domain;
+	$portal_url = 'https://portal.'.$domain;
+}
+our @EXPORT_OK;
+
+sub newmember_uuid();
+sub newmember_rand();
+sub gpgcmd($);
+sub gpgcmd_user($);
+sub gpgcmd_myfiles($);
+sub gpgcmd_present($);
+sub gpgcmd_mykeys($$);
+sub gpgcmd_allkeys($);
+sub gpgcmd_keyexpire($$);
+sub get_tg($$);
+sub email_ml_lhs($$);
+sub email_mlcanon($$);
+sub email_addr($$);
+sub email_hdr($$);
+sub email_send($$$$$$$);
+sub email_send_pgp($$$$$$$$$);
+sub get_dbh();
+sub drop_dbh($);
+sub audit_enter($$$);
+sub audited_do($$@);
+sub notify_newlyvetted($$$);
+sub notify_newlyapproved($$$);
+sub notify_newlyinactive($$$);
+sub notify_soonidle($$$);
+sub notify_newlyidle($$$);
+sub notify_newlyfailed($$$);
+sub notify_newlyactive($$$);
+sub notify_email_verify($$$);
+sub make_thumbnail($$$$);
+sub list_languages($);
+sub list_language_levels($);
+sub list_second_factor_types($);
+sub state_mon($);
+sub new_form_id();
+sub rand_str();
+sub ts_rfc822_to_sql($);
+sub password_synch($);
+sub gpg_encrypt($$$$$);
+sub gpg_decrypt($$$);
+sub gpg_key_path($);
+sub gpg_key_present($$);
+sub gpg_mlkey_present($$$);
+sub member_email($$$);
+sub ExtractAddr($);
+sub mkpw_portal($);
+sub find_recipients($$$);
+sub new_member($$$$$$$$);
+
+#
+# newmember_uuid -- return a uuid suitable for creating a new member
+#
+sub newmember_uuid() {
+	return Data::UUID->new->create_str();
+}
+
+#
+# newmember_rand -- return a random number suitable for a new member's id
+#
+sub newmember_rand() {
+	return int(rand(9999)) + 1;
+}
+
+sub gpgcmd($) {
+	my ($uuid) = @_;
+
+	return sprintf($gpgcmd_format, &gpg_key_path($uuid));
+}
+
+#
+# gpgcmd_user -- return a gpg command that specifies a single user's keyring
+#
+sub gpgcmd_user($) {
+	my ($uuid) = @_;
+
+	return join(' ', &gpgcmd($uuid),
+		"--primary-keyring ${uuid}.gpg",
+		"--secret-keyring ${uuid}.secring",
+		"--trustdb ${uuid}.trustdb");
+}
+
+#
+# gpgcmd_myfiles -- return an array of filenames used by gpg for this user
+#
+sub gpgcmd_myfiles($) {
+	my ($uuid) = @_;
+
+	return (&gpg_key_path($uuid)."/$uuid".'.gpg',
+		&gpg_key_path($uuid)."/$uuid".'.secring',
+		&gpg_key_path($uuid)."/$uuid".'.trustdb');
+}
+
+#
+# gpgcmd_present -- return nonzero if there is a non-empty key ring
+#
+sub gpgcmd_present($) {
+	my ($uuid) = @_;
+
+	foreach my $file (&gpgcmd_myfiles($uuid)) {
+		return 1 if -e $file && (-s $file) != 0;
+	}
+	return 0;
+}
+
+#
+# gpgcmd_mykeys -- return an array of keyid's matching a particular email addr
+#
+sub gpgcmd_mykeys($$) {
+	my ($uuid, $email) = @_;
+
+	return () unless &gpgcmd_present($uuid);
+	my $my_gpgcmd = &gpgcmd_user($uuid);
+	my $pattern = '^pub\s+(\d+\w+)\/([a-fA-F0-9]+)\s+';
+	return map { /$pattern/ && $2 }
+		grep { /$pattern/ } `$my_gpgcmd --list-keys $email 2>&1`;
+}
+
+#
+# gpgcmd_allkeys -- return a string describing a given user's keytab
+#
+sub gpgcmd_allkeys($) {
+	my ($uuid) = @_;
+
+	return '' unless &gpgcmd_present($uuid);
+	my $my_gpgcmd = &gpgcmd_user($uuid);
+	$_ = `$my_gpgcmd --list-keys 2>&1`;
+	chomp; chomp;
+	$_ = join("\n", grep {!/unsafe ownership on homedir/} split("\n", $_));
+	return $_;
+}
+
+#
+# gpgcmd_keyexpire -- return expire date of a gpg key.
+#
+sub gpgcmd_keyexpire($$) {
+	my ($uuid, $key) = @_;
+
+	return () unless &common::gpgcmd_present($uuid);
+	my $my_gpgcmd = &common::gpgcmd_user($uuid);
+	my $pattern = 'expire[sd]: ([\d-]+)';
+	return map { /$pattern/ && $1 } 
+		grep { /$pattern/ } `$my_gpgcmd --list-keys $key 2>&1`;
+}
+
+#
+# get_tg -- init and retrieve trustgroup variables
+#
+sub get_tg($$) {
+	my ($dbh, $ident) = @_;
+	my $db_ident = $dbh->quote($ident);
+	my $ret = $dbh->selectrow_hashref(qq{
+		SELECT ident, shortname, min_invouch, min_outvouch,
+			pgp_required, descr, please_vouch,
+			vouch_adminonly, nom_enabled, max_vouchdays,
+			idle_guard, has_wiki
+		  FROM trustgroup
+		 WHERE ident = $db_ident
+	});
+	$ret->{db_ident} = $db_ident if defined $ret;
+	return $ret;
+}
+
+#
+# email_ml_lhs -- canonicalize an m/l address with a trustgroup (no @domain)
+#
+sub email_ml_lhs($$) {
+	my ($tg_ident, $ml_ident) = @_;
+
+	$ml_ident =~ s/\@.*//o;
+	my $addr = $tg_ident eq 'main' ||
+			$ml_ident eq 'sysadmin' ||
+			$ml_ident eq 'hostmaster'
+		? $ml_ident
+		: $tg_ident.'-'.$ml_ident;
+	return $addr;
+}
+
+#
+# email_mlcanon -- canonicalize an m/l address in the presence of trustgroups
+#
+sub email_mlcanon($$) {
+	my ($tg_ident, $ml_ident) = @_;
+
+	my $addr = &email_ml_lhs($tg_ident, $ml_ident);
+
+	$addr .= '@'.$domain unless $addr =~ /\@/;
+	return $addr;
+}
+
+#
+# email_addr -- return a trustgroup-specific e-mail (address, descr)
+#
+sub email_addr($$) {
+	my ($tg, $addr) = @_;
+
+	my $descr = $addr;
+	$descr =~ s/\@.*//o;
+	$addr = &email_mlcanon($tg->{ident}, $addr);
+	$descr = $tg->{shortname}.' '.$descr;
+	return ($addr, $descr);
+}
+
+#
+# email_hdr -- format one email header of the to/cc/bcc variety
+#
+sub email_hdr($$) {
+	my ($hdr, $elt) = @_;
+
+	return '' unless defined($elt);
+	return $hdr.': '.$elt."\n" unless ref($elt);
+	return $hdr.': '.join(",\n\t", @$elt)."\n";
+}
+
+#
+# email_send -- transmit one e-mail message
+#
+sub email_send($$$$$$$) {
+	my ($tg, $from, $to, $cc, $reply_to, $subj, $body) = @_;
+	my $smtp = Mail::SendEasy::SMTP->new('127.0.0.1', 25, 120);
+	my $from_addr;
+	my $from_comment;
+	if ($tg eq 'hostmaster') {
+		$from_addr = $hostmaster;
+		$from_comment = '!coname! Hostmaster';
+	} else {
+		($from_addr, $from_comment) = &email_addr($tg, $from);
+	}
+	my $errstr = undef;
+
+	sub expand {
+		my ($elt) = @_;
+
+		return () unless defined $elt;
+		return ($elt) unless ref $elt;
+		return (@$elt);
+	}
+
+	if ($smtp->MAIL("FROM:<$from_addr>") !~ /^2/o) {
+		$errstr = $smtp->last_response_line;
+	}
+	if (!defined $errstr) {
+		my @recips;
+
+		if ($test_mode) {
+			@recips = ($hostmaster);
+		} else {
+			@recips = (&expand($to), &expand($cc));
+		}
+		foreach (@recips) {
+			if ($smtp->RCPT("TO:<$_>") !~ /^2/o) {
+				$errstr = $smtp->last_response_line;
+				last;
+			}
+		}
+	}
+	if (!defined $errstr) {
+		if ($smtp->DATA !~ /^3/o) {
+			$errstr = $smtp->last_response_line;
+		}
+	}
+	if (!defined $errstr) {
+		$_ = "From: $from_addr ($from_comment)\n" .
+			&email_hdr('To', $to) .
+			&email_hdr('Cc', $cc) .
+			&email_hdr('Reply-To', $reply_to) .
+			"Subject: $subj\n" .
+			"MIME-Version: 1.0\n" .
+			"Content-Type: text/plain; charset=iso-8859-1\n" .
+			"Content-Transfer-Encoding: 8bit\n" .
+			"Precedence: bulk\n";
+		if ($test_mode) {
+			$_ .= join("\n", map { "X-Rcpt-To: $_" }
+				(&expand($to), &expand($cc)));
+		}
+		$_ .= "\n";
+		$_ .= ref($body) ? $$body : $body;
+		$_ .= "\n" unless m:\n$:o;
+		s:^\.:..:mgo;				# RFC 821 4.5.2
+		s:\n$:\r\n:mgo;
+		$smtp->print($_);
+		$_ = $smtp->DATAEND;
+		if (defined $_ && !/^2/o) {
+			$errstr = $smtp->last_response_line;
+		}
+	}
+	$smtp->close;
+	return $errstr;
+}
+
+#
+# email_send_pgp -- transmit one e-mail message after crypting it
+# XXX: should be sending it in RFC 2015 format using MIME::Tools
+#
+sub email_send_pgp($$$$$$$$$) {
+	my ($tg, $from, $recip, $recip_uuid, $pgpkey_id, $cc, $reply_to,
+	    $subj, $body) = @_;
+
+	#
+	# encrypt the body using gpg
+	#
+	my $crypt_fh = File::Temp->new();
+	return (-1, "File::Temp->new failed: $!") unless defined $crypt_fh;
+	my ($size, $error) = &gpg_encrypt($recip_uuid, $pgpkey_id, undef,
+			ref($body) ? $body : \$body, $crypt_fh);
+	return (-1, "gpg_encrypt failed: $error") if $size < 0;
+	my $crypt = undef;
+	open($crypt, '<'.$crypt_fh->filename) ||
+		return (-1, "open failed: $!");
+	$body = '';
+	while (<$crypt>) {
+		$body .= $_;
+	}
+	close($crypt);
+	$crypt_fh = undef;
+
+	$error = &email_send($tg, $from, $recip, $cc,
+			     $reply_to, $subj, \$body);
+	return (-1, $error) if defined $error;
+	return (0, undef);
+}
+
+#
+# get_dbh -- init (possibly using apache cache) & return a database handle
+#
+sub get_dbh() {
+	my $dbh = &get_dbh2();
+	die "$dbname@$dbhost: $DBI::errstr" unless $dbh;
+	return $dbh;
+}
+
+#
+# like get_dbh but always returns (possibly undef, if there was an error)
+#
+sub get_dbh2() {
+	my $connstr = "DBI:Pg:dbname=$dbname;host=$dbhost;port=$dbport";
+
+	return DBI->connect_cached($connstr, '', '',
+		{ RaiseError => 1, pg_enable_utf8 => 1 });
+}
+
+#
+# drop_dbh -- release a database handle (possibly back to apache's cache)
+#
+sub drop_dbh($) {
+	my($dbh) = @_;
+
+	$dbh->disconnect();
+}
+
+#
+# audit_enter -- enter a record into the audit log
+#
+sub audit_enter($$$) {
+	my($dbh, $member, $what) = @_;
+
+	$member = length($member) ? $dbh->quote($member) : 'NULL';
+	$what =~ s/\s+/ /go;
+	$what = $dbh->quote($what);
+	my $rv = $dbh->do(qq{
+		INSERT INTO audit_history
+			(member, what)
+		VALUES
+			($member, $what)
+	});
+}
+
+#
+# audited_do -- version of dbh->do that also creates an audit record
+#
+sub audited_do($$@) {
+	my($dbh, $member, @stmts) = @_;
+
+	$dbh->{AutoCommit} = 0;
+	eval {
+		foreach my $stmt (@stmts) {
+			$dbh->do($stmt);
+			&audit_enter($dbh, $member, "SQL: $stmt");
+		};
+		$dbh->commit;
+	};
+	my $errstr = $@;
+	my $db_errstr = $dbh->errstr;
+	$dbh->rollback if length $errstr;
+	$dbh->{AutoCommit} = 1;
+	return ($db_errstr);
+}
+
+#
+# list_languages -- return an array of languages
+#
+sub list_languages($) {
+	my($dbh) = @_;
+	my $query = "SELECT iso_639_1,name FROM languages ORDER BY name";
+    	my $sth= $dbh->prepare($query);
+    	$sth->execute;
+	my @languages;
+	my %language_names;
+    	while (my ($iso,$name) = $sth->fetchrow_array) {
+        	push @languages, $iso;
+		$language_names{$iso} = $name;
+    	}
+	return (\@languages,\%language_names);
+}
+
+#
+# list_language_levels -- return an array of language skill levels
+#
+sub list_language_levels($) {
+	my($dbh) = @_;
+	my $query = "SELECT skill FROM language_skill ORDER BY SEQ";
+	my @array = @{ $dbh->selectall_arrayref($query, { Slice => {} }) };
+	my @out = map {$_->{'skill'}} @array;
+	return \@out;
+}
+
+#
+# list_second_factor_types -- return an array of second_factor device types
+#
+sub list_second_factor_types($) {
+	my($dbh) = @_;
+	my $query = "SELECT type,descr FROM second_factor_types ORDER BY type DESC";
+	my $sth= $dbh->prepare($query);
+	$sth->execute;
+	my @types;
+	my %type_names;
+	while (my ($type,$type_name) = $sth->fetchrow_array) {
+		push @types, $type;
+		$type_names{$type} = $type_name;
+	}
+	return (\@types,\%type_names);
+}
+
+
+sub notify_newlyvetted($$$) {
+	my ($member, $email, $tg) = @_;
+
+	return &email_send($tg, $hostmaster,		# trustgroup, sender
+		[ &email_mlcanon($tg->{ident}, 'admin') ],# to
+		undef,					# cc
+		undef,					# reply-to
+		$member.' is now vetted (Action Required)', # subject
+		Text::Wrap::fill('', '', (
+qq{$member has been vetted, and requires administrative approval (by you)
+before their membership in $tg->{descr} will be complete. This approval can
+be given by visiting their profile and clicking on the 'Approve' button.
+}		))					# body
+	);
+}
+
+sub notify_newlyapproved($$$) {
+	my ($member, $email, $tg) = @_;
+
+	return &email_send($tg, $hostmaster,		# trustgroup, sender
+		[ &email_mlcanon($tg->{ident}, 'vetting') ],	# to
+		undef,					# cc
+		undef,					# reply-to
+		$member.' is now approved',		# subject
+		Text::Wrap::fill('', '', (
+qq{$member is approved for membership in $tg->{descr} but must log into the
+web portal and possibly enter a PGP key before they will begin receiving
+group e-mail messages.  Somebody should inform them of this, and ask them
+to check their whole profile including their portrait, and to vouch for
+others.
+}		))					# body
+	);
+}
+
+sub notify_newlyinactive($$$) {
+	my ($member, $email, $tg) = @_;
+
+	my $to = undef;	# XXX should send to this member's vouchors
+	return &email_send($tg, $hostmaster,		# trustgroup, sender
+		$to,					# to
+		$hostmaster,				# cc
+		undef,					# reply-to
+		$member.' is now inactive',		# subject
+		Text::Wrap::fill('', '', (
+qq{$member has become inactive in $tg->{descr}.
+}		))					# body
+	);
+}
+
+sub notify_soonidle($$$) {
+	my ($member, $email, $tg) = @_;
+
+	return &email_send($tg, $hostmaster,		# trustgroup, sender
+		[ $email ],				# to
+		$hostmaster,				# cc
+		undef,					# reply-to
+		$member.' will soon be idle',		# subject
+		Text::Wrap::fill('', '', (
+qq{$member has been long idle in $tg->{descr} and will enter the "idle" state
+in $tg->{idle_guard} or so.  If $member logs into the web portal or sends mail
+to any OpSecTrust mailing list soon, then they will immediately return to
+active status.
+}		))					# body
+	);
+}
+
+sub notify_newlyidle($$$) {
+	my ($member, $email, $tg) = @_;
+
+	return &email_send($tg, $hostmaster,		# trustgroup, sender
+		[ $email ],				# to
+		undef,					# cc
+		undef,					# reply-to
+		$member.' is now idle',			# subject
+		Text::Wrap::fill('', '', (
+qq{$member has been too long idle in $tg->{descr} and will no longer receive
+group e-mail messages.  If $member logs into the web portal again, or sends
+mail to a $tg->{shortname} mailing list, then they will immediately return to
+active status.
+}		))					# body
+	);
+}
+
+sub notify_newlyfailed($$$) {
+	my ($member, $email, $tg) = @_;
+
+	return &email_send($tg, $hostmaster,		# trustgroup, sender
+		[ &email_mlcanon($tg->{ident}, 'vetting') ],	# to
+		undef,					# cc
+		undef,					# reply-to
+		$member.' nomination failed',		# subject
+		Text::Wrap::fill('', '', (
+qq{$member was nominated in $tg->{descr} but the nomination has failed.
+$member can be renominated through the portal UI at any time.
+}		))					# body
+	);
+}
+
+sub notify_newlyactive($$$) {
+	my ($member, $email, $tg) = @_;
+
+	return &email_send($tg, $hostmaster,		# trustgroup, sender
+		[ $email ],				# to 
+		undef,					# cc
+		$hostmaster,				# reply-to
+		$member.' is now active',		# subject
+		Text::Wrap::fill('', '', (
+qq{$member is now an active member in $tg->{descr}
+}		))					# body
+	);
+}
+
+sub notify_email_verify($$$) {
+	my ($member,$email, $token) = @_;
+
+	return &email_send('hostmaster', $hostmaster,	# trustgroup, sender
+		[ $email ],				# to
+		undef,					# cc
+		$hostmaster,				# reply-to
+		$member.' registered this e-mail address',# subject
+		Text::Wrap::fill('', '', (
+qq{$member has claimed use of this e-mail address.
+To confirm, please login to the portal and submit this
+token to the e-mail manager:
+
+	$token
+
+If you are not $member you may delete this e-mail or
+reply to this message.
+
+}	))					# body
+	);
+}
+
+
+sub make_thumbnail($$$$) {
+	my ($dbh,$member,$face, $bg) = @_;
+
+	my $output = $bg ? '2> /dev/null &' : '';
+	my $image_fh = undef;
+	open($image_fh, 'PATH=/usr/local/bin:$PATH; export PATH; umask 2; '.
+		"anytopnm ${face}.source |".
+		'pnmscale -x 128 | pnmtopng |');
+	my $image_data = "";
+	while (read($image_fh, my $buffer, 4096)) {
+		$image_data .= $buffer;
+	}
+	close($image_fh);
+	my $db_image = $dbh->quote(MIME::Base64::encode_base64($image_data,undef));
+	my $rv = $dbh->do(qq{
+		UPDATE member SET image = $db_image where ident = $member
+	});
+	unlink "$face.source";
+}
+
+sub state_mon($) {
+	my ($member) = @_;
+
+	system "!library!/state-mon $member 2>&1 >/dev/null";
+}
+
+sub new_form_id() {
+	return &rand_str();
+}
+
+sub rand_str() {
+	return join('', ('.', '/', 0..9, 'A'..'Z', 'a'..'z')
+		[rand 64, rand 64, rand 64, rand 64, rand 64, rand 64]);
+}
+
+sub ts_rfc822_to_sql($) {
+	my ($rfc822) = @_;
+
+	my $datetime = eval {DateTime::Format::Mail->parse_datetime($rfc822);};
+	return undef unless defined $datetime;
+	$datetime->set_time_zone('UTC');
+	return DateTime::Format::Pg->format_timestamp($datetime);
+}
+
+sub password_synch($) {
+	my ($member) = @_;
+
+	# this is where we used to synch the ldap passwords
+}
+
+sub gpg_encrypt($$$$$) {
+	my ($recip_uuid, $pgpkey_id, $passphrase, $plainref, $crypt_fh) = @_;
+
+	# open an output file, which will be crypted, so it can be on disk
+	my $crypt_io = IO::File->new_from_fd($crypt_fh->fileno, "w");
+	return (-1, "new_from_fd: $@") unless defined $crypt_io;
+	$crypt_io->seek(0, 0);
+	$crypt_io->truncate(0);
+
+	# open a perl-style software pipe for the input and stderr
+      	my $input = IO::Handle->new();
+      	my $error = IO::Handle->new();
+
+	# create an interface object and tell it our passphrase & stuff
+	my $gnupg = GnuPG::Interface->new();
+	$gnupg->options->hash_init(
+		homedir => $ml_keys,
+		armor => 1,
+		always_trust => 1,
+		extra_args => [
+			'--no-secmem-warning',
+			'--no-permission-warning',
+			'--no-default-keyring',
+			'--keyring='.&gpg_key_path($recip_uuid).
+				"/$recip_uuid.gpg",
+			'--secret-keyring='.&gpg_key_path($recip_uuid).
+				"/$recip_uuid.secring"
+		]
+	);
+	$gnupg->options->push_recipients($pgpkey_id);
+	$gnupg->passphrase($passphrase) if defined $passphrase;
+
+	# create a handles object and tell it that stdout is a disk file
+	my $handles = GnuPG::Handles->new(
+		stdin => $input,
+		stdout => $crypt_io,
+		stderr => $error
+	);
+	$handles->options('stdout')->{direct} = 1;
+
+	# launch the encrypt
+	my $pid = $gnupg->encrypt(handles => $handles);
+
+	# pump out the input
+	print {$input} $$plainref;
+	close $input;
+
+	# gather the stderr
+	my $error_text = '';
+	while (<$error>) {
+		$error_text .= $_;
+	}
+
+	# reap the child
+  	waitpid $pid, 0;
+
+	# rewind and return
+	$crypt_io->close();
+	return (0, $error_text);
+}
+
+sub gpg_decrypt($$$) {
+	my ($recip_ml, $passphrase, $cryptpath) = @_;
+	my $result = '';
+
+	# open the file, which is on disk
+	my $cryptfile = IO::File->new($cryptpath);
+	return (undef, "$cryptpath: $@") unless defined $cryptfile;
+
+	# open a perl-style software pipe for the output and stderr
+      	my $output = IO::Handle->new();
+      	my $error  = IO::Handle->new();
+
+	# create an interface object and tell it our passphrase (if any)
+	my $gnupg = GnuPG::Interface->new();
+	$gnupg->options->hash_init(
+		homedir => $ml_keys,
+		extra_args => [ 
+			'--no-secmem-warning',
+			'--no-permission-warning',
+			'--no-default-keyring',
+			"--keyring=$ml_keys/$recip_ml.gpg",
+			"--secret-keyring=$ml_keys/$recip_ml.secring"
+		]
+	);
+	$gnupg->passphrase($passphrase) if defined $passphrase;
+
+	# create a handles object and tell it that stdin is a disk file
+	my $handles = GnuPG::Handles->new(
+		stdin => $cryptfile,
+		stdout => $output,
+		stderr => $error
+	);
+	$handles->options('stdin')->{direct} = 1;
+
+	# launch the decrypt
+	my $pid = $gnupg->decrypt(handles => $handles);
+
+	# gather the output
+	while (<$output>) {
+		$result .= $_;
+	}
+
+	# gather the stderr
+	my $error_text = '';
+	while (<$error>) {
+		$error_text .= $_;
+	}
+
+	# reap the child
+  	waitpid $pid, 0;
+
+	# return the result
+	return ($result, $error_text);
+}
+
+sub gpg_key_path($) {
+	my ($uuid) = @_;
+
+	my $branch_1 = substr $uuid, -1, 1;
+	my $branch_2 = substr $uuid, -2, 1;
+	make_path($common::pgpkeys."/$branch_1/$branch_2");
+	return $common::pgpkeys."/$branch_1/$branch_2";
+}
+
+sub gpg_key_present($$) {
+	my ($dbh, $uuid) = @_;
+
+	my $db_uuid = $dbh->quote($uuid);
+
+	my $sth= $dbh->prepare(qq{
+		SELECT me.keyring,
+			COALESCE(DATE_PART('epoch', me.keyring_update_at), 0)
+				AS update_at
+		  FROM member_email me, member m
+		 WHERE me.member = m.ident
+			AND m.uuid = $db_uuid
+			ORDER BY update_at asc
+	});
+	$sth->execute;
+	my $path = gpg_key_path($uuid);
+	make_path($path);
+	my $filename = $path."/$uuid";
+	my $mtime = (stat($filename.".gpg"))[9];
+	my $update_all = 0; #If we update one key, we should re-import all of them. 
+	while (my ($key,$update_at) = $sth->fetchrow_array) {
+		my $generate_key = 1;
+		if ( -e $filename.".gpg" && -s $filename.'.gpg') {
+			if ($mtime > $update_at) {
+				# filesystem mtime is after DB update time
+				# we can live with the key(s) we have.
+				$generate_key = 0;
+			}
+		}
+		if ($generate_key || $update_all) {
+			my $gpg = undef;
+			open($gpg, '|'.&gpgcmd_user($uuid).' --import');
+			print {$gpg} $key;
+			close($gpg);
+			$update_all = 1;
+		}
+	}
+}
+
+sub gpg_mlkey_present($$$) {
+	my ($dbh, $lhs, $tgname) = @_;
+
+	my $db_lhs = $dbh->quote($lhs);
+	my $db_tgname = $dbh->quote($tgname);
+
+	my ($pubkey,$seckey,$update_at) = $dbh->selectrow_array(qq{
+		SELECT ml.pubkey, ml.seckey,
+		       date_part('epoch', ml.key_update_at)::integer AS update_at
+		  FROM mailinglist ml
+		 WHERE ml.lhs = $db_lhs
+		   AND ml.trustgroup = $db_tgname
+	});
+
+	my $filename;
+	if ($tgname eq 'main'){
+		$filename = $common::ml_keys.'/'.$lhs;
+	} else {
+		$filename = $common::ml_keys.'/'.$tgname.'-'.$lhs;
+	}
+	return 0 unless defined $pubkey;
+	my $generate_keys = 1;
+	if ( -e $filename.'.gpg' ) {
+		my $mtime = (stat($filename.'.gpg'))[9];
+		if ($mtime > $update_at) {
+			#filesystem mtime is after DB update time
+			#we can live with the key we have.
+			$generate_keys = 0;
+		}
+	}
+
+	if ($generate_keys) {
+		unlink "$filename.gpg";
+		open(GPG, "| $gpgcmd_ml --keyring $filename.gpg --import");
+		print GPG $pubkey;
+		close(GPG);
+		unlink "$filename.secring";
+		open(GPG, "| $gpgcmd_ml --secret-keyring $filename.secring --import");
+		print GPG $seckey;
+		close(GPG);
+	}
+	return 1;
+}
+
+
+sub member_email($$$) {
+	my ($dbh, $member, $tg) = @_;
+
+	my $db_member = $dbh->quote($member);
+	my ($email) = $dbh->selectrow_array(qq{
+		SELECT mt.email
+		  FROM member_trustgroup mt
+		 WHERE ROW(mt.member, mt.trustgroup) =
+			ROW($db_member, $tg->{db_ident})
+	});
+	return $email;
+}
+
+# written back in the early 1990's, probably as part of FTPMAIL, at DECWRL
+sub ExtractAddr($) {
+	local($_) = @_;
+
+	$_ = $`.$' while (/\(.*\)/o);
+	$_ = $1    while (/\<(.*)\>/o);
+	s/^\s+//o;
+	s/\s+$//o;
+	return $_;
+}
+
+sub mkpw_portal($) {
+	my($cleartext) = @_;
+
+	my $salt = '$1$'.join('',
+			     ('.', '/', 0..9, 'A'..'Z', 'a'..'z')
+				[rand 64, rand 64, rand 64, rand 64,
+				 rand 64, rand 64, rand 64, rand 64]).'$';
+	return crypt($cleartext, $salt);
+}
+
+#
+# what are the recipients for messages to this mailing list at this time?
+#
+sub find_recipients($$$) {
+	my ($dbh, $tg, $lhs) = @_;
+
+	if ($lhs.'@'.$common::domain eq $common::sender) {
+		return ( $common::hostmaster );
+	}
+
+	my $db_lhs = $dbh->quote($lhs);
+	my $db_tgname = $dbh->quote($tg->{ident});
+
+	if ($lhs eq 'admin') {
+		return @{$dbh->selectall_arrayref(qq{
+			SELECT mt.email, m.uuid, me.pgpkey_id, m.descr
+			  FROM member m
+			  JOIN member_trustgroup mt ON
+				ROW(mt.member, mt.trustgroup) =
+					ROW(m.ident, $db_tgname)
+			  JOIN member_email me ON
+				ROW(me.member, me.email) =
+					ROW(mt.member, mt.email)
+			  JOIN member_state ms ON (ms.ident = mt.state)
+			 WHERE me.verified
+			   AND mt.admin
+			   AND ms.can_recv
+			   AND NOT m.no_email
+			   AND NOT m.furlough
+		}, {Slice => {}})};
+	}
+
+	if ($lhs eq 'sysadmin' && $tg->{ident} eq 'main') {
+		return @{$dbh->selectall_arrayref(qq{
+			SELECT mt.email, m.uuid, me.pgpkey_id, m.descr
+			  FROM member m
+			  JOIN member_trustgroup mt ON
+				ROW(mt.member, mt.trustgroup) =
+					ROW(m.ident, $db_tgname)
+			  JOIN member_email me ON
+				ROW(me.member, me.email) =
+					ROW(mt.member, mt.email)
+			  JOIN member_state ms ON (ms.ident = mt.state)
+			 WHERE me.verified
+			   AND m.sysadmin
+			   AND ms.can_recv
+			   AND NOT m.no_email
+			   AND NOT m.furlough
+		}, {Slice => {}})};
+	}
+
+	return @{$dbh->selectall_arrayref(qq{
+		SELECT mt.email, m.uuid, me.pgpkey_id, m.descr
+		  FROM member m
+		  JOIN member_mailinglist mm ON
+			ROW(mm.member, mm.trustgroup) =
+				ROW(m.ident, $db_tgname)
+		  JOIN mailinglist ml ON
+			ROW(ml.lhs, ml.trustgroup) =
+				ROW(mm.lhs, mm.trustgroup)
+		  JOIN member_trustgroup mt ON
+			ROW(mt.member, mt.trustgroup) =
+				ROW(m.ident, mm.trustgroup)
+		  JOIN member_email me ON
+			ROW(me.member, me.email) =
+				ROW(mt.member, mt.email)
+		  JOIN member_state ms ON (ms.ident = mt.state)
+		 WHERE ml.lhs = $db_lhs
+		   AND me.verified
+		   AND ms.can_recv
+		   AND NOT m.no_email
+		   AND NOT m.furlough
+	}, {Slice => {}})};
+}
+
+#
+# new_member -- called to add a new member to their first trustgroup
+#
+
+sub new_member($$$$$$$$) {
+	my ($dbh, $tg, $vouchor, $email, $descr, $bio,
+		$affiliation, $attestation) = @_;
+
+	$email =~ tr/A-Z/a-z/;
+
+	my $db_vouchor = $dbh->quote($vouchor);
+	my $db_email = $dbh->quote($email);
+	my $db_descr = $dbh->quote($descr);
+	my $db_bio = $dbh->quote($bio);
+	my $db_affiliation = $dbh->quote($affiliation);
+	my $db_attestation = $dbh->quote($attestation);
+	my ($ident, $db_ident);
+	my @stmts = ();
+	my $ret = '';
+
+	#
+	# only insert into member table if it's not already there;
+	# this might be a cross-trustgroup nomination.  do not check
+	# for blockedness, since on a cross-trustgroup nomination,
+	# it's fine if they're blocked in some other trustgroup.
+	#
+	# XXX there is a race condition in that we could see no row
+	# at the same time someone else sees no row, and both try to
+	# insert one. postgresql does not make this easy to avoid.
+	#
+	my $row = $dbh->selectrow_hashref(qq{
+		SELECT me.member AS ident
+		  FROM member_email me
+		 WHERE me.email = $db_email;
+	});
+	if (defined $row) {
+		$ident = $row->{ident};
+		$db_ident = $dbh->quote($ident);
+	} else {
+		$ident = $descr;
+		$ident =~ s/[\s\W]//go;
+		$ident =~ tr/A-Z/a-z/;
+		$ident .= &common::newmember_rand();
+		$db_ident = $dbh->quote($ident);
+		my $db_uuid = $dbh->quote(&common::newmember_uuid());
+		push(@stmts, qq{
+			INSERT INTO member
+				(ident, uuid, descr,
+				 affiliation, bio_info)
+			VALUES
+				($db_ident, $db_uuid, $db_descr,
+				 $db_affiliation, $db_bio);
+			INSERT INTO member_email
+				(member, email, pgpkey_id, verified)
+			VALUES
+				($db_ident, $db_email, NULL, TRUE);
+		});
+	}
+
+	#
+	# only insert into member_trustgroup table if it's not
+	# already there; this might be a re-nom after failure.
+	#
+	# XXX race condition here, postgres does not make it easy.
+	#
+	# XXX this fails on renom-after-failure now that we randomize $ident.
+	#
+	$row = $dbh->selectrow_hashref(qq{
+		SELECT COUNT(*) AS count
+		  FROM member_trustgroup mt
+		 WHERE ROW(mt.member, mt.trustgroup, mt.state) =
+			ROW($db_ident, $tg->{db_ident}, 'failed')
+	});
+	if ($row->{count} != 0) {
+		push @stmts, qq{
+			UPDATE member_trustgroup mt
+			   SET state = 'nominated',
+				entered = NOW()::timestamp
+			 WHERE ROW(mt.member, mt.trustgroup, mt.state)
+				=
+				ROW($db_ident, $tg->{db_ident}, 'failed');
+		};
+	} else {
+		push @stmts, qq{
+			INSERT INTO member_trustgroup
+				(member, trustgroup,
+				 email, state)
+			VALUES
+				($db_ident, $tg->{db_ident},
+				 $db_email, 'nominated');
+		};
+	}
+
+	#
+	# only insert into vouch table if it's not already there;
+	# this might be a mind-change after a nonpositive vouch
+	#
+	# XXX race condition, postgres does not make this easy.
+	#
+	$row = $dbh->selectrow_hashref(qq{
+		SELECT mv.positive
+		  FROM member_vouch mv
+		 WHERE ROW(mv.vouchee, mv.vouchor, mv.trustgroup) =
+			ROW($db_ident, $db_vouchor, $tg->{db_ident});
+	});
+	if (defined $row) {
+		if ($row->{positive}) {
+			$ret .= qq{
+				You have already vouched for this
+				member, so this new attestation will
+				not be recorded.
+			};
+		} else {
+			push @stmts, qq{
+				UPDATE member_vouch mv SET
+					positive = TRUE
+				 WHERE ROW(mv.vouchee,
+					   mv.vouchor,
+					   mv.trustgroup) =
+					ROW($db_ident,
+					    $db_vouchor,
+					    $tg->{db_ident});
+			};
+		}
+	} else {
+		push @stmts, qq{
+			INSERT INTO member_vouch
+				(vouchor, vouchee, comment,
+				 trustgroup, positive)
+			VALUES
+				($db_vouchor, $db_ident, $db_attestation,
+				 $tg->{db_ident}, TRUE);
+		};
+	}
+	#
+	# mailing lists
+	#
+	foreach my $row (@{$dbh->selectall_arrayref(qq{
+		SELECT lhs
+		  FROM mailinglist
+		 WHERE automatic
+		   AND trustgroup = $tg->{db_ident};
+	}, {Slice => {}})}) {
+		my $db_lhs = $dbh->quote($row->{lhs});
+		#
+		# only insert into member_mailinglist table if it's not
+		# already there; this might be a re-nom after failure.
+		#
+		# XXX race condition here, pgsql doesn't make this easy.
+		#
+		$row = $dbh->selectrow_hashref(qq{
+			SELECT COUNT(*) AS count
+			  FROM member_mailinglist
+			 WHERE ROW(member, lhs, trustgroup) =
+				($db_ident, $db_lhs, $tg->{db_ident})
+		});
+		if ($row->{count} == 0) {
+			push @stmts, qq{
+				INSERT INTO member_mailinglist
+					(member, lhs, trustgroup)
+				VALUES
+					($db_ident, $db_lhs, $tg->{db_ident});
+			};
+		}
+	}
+
+	my $errstr = &common::audited_do($dbh, $vouchor, @stmts);
+	if (length $errstr) {
+		$ret .= "Failure: $errstr";
+	} else {
+		my $probably_complete = ($tg->{min_invouch} == 1 &&
+					 $tg->{vouch_adminonly});
+		$ret .= 'Member has been added to this trust group. ';
+		$ret .= 'Further vetting may be required. '
+			unless $probably_complete;
+		&common::state_mon($vouchor);
+
+		#
+		# tell vetting@ that a new nomination has occurred
+		#
+		if ($tg->{please_vouch}) {
+			my ($vet_email, $vet_comment) =
+				&common::email_addr($tg, 'vetting');
+			&common::email_send($tg, $common::hostmaster,
+				$vet_email,			# to
+				undef,				# cc
+				"$vet_email ($vet_comment)",	# rply2
+				"new nomination: $email",	# subj
+\qq{$vouchor has nominated
+$ident ($descr)
+for $tg->{descr}
+
+Please visit the $common::domain web portal if you can vouch
+for this person, or reply to this e-mail if you have any questions.
+
+Note that this nomination must complete confidentially -- the time to
+notify a potential member of their nomination is: if & after it succeeds.
+});
+		}
+	}
+
+	# clean up return string, and return it
+	$ret =~ s/\n//go;
+	$ret =~ s/\s+/ /go;
+	return $ret;
+}
+
+1;

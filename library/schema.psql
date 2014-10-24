@@ -1,0 +1,621 @@
+CREATE LANGUAGE plpgsql;
+
+create database "ops-trust";
+create user www;			-- freebsd
+create user "www-data";			-- debian
+create user admin;
+create group sysadmin user admin;
+
+\c "ops-trust";
+
+CREATE OR REPLACE FUNCTION email_ok (addr TEXT) RETURNS BOOLEAN AS $$
+BEGIN
+	RETURN (addr IS NULL OR
+		addr ~ E'^[a-z0-9\\.\\-\\_\\+]+\\w@[a-z0-9\\.\\-\\_]+\\w$');
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE OR REPLACE FUNCTION domain_ok (domain TEXT) RETURNS BOOLEAN AS $$
+BEGIN
+	RETURN (domain IS NULL OR
+		domain ~ E'^[\\w\\-\\_]+(\\.[\\w\\-\\_]+)+$');
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE OR REPLACE FUNCTION lhs_ok (lhs TEXT) RETURNS BOOLEAN AS $$
+BEGIN
+	RETURN (lhs IS NULL OR
+		lhs ~ E'^\\w+$');
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE OR REPLACE FUNCTION ident_ok (ident TEXT) RETURNS BOOLEAN AS $$
+BEGIN
+	RETURN (ident IS NULL OR
+		ident ~ E'^[a-z][a-z0-9]*$');
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE OR REPLACE FUNCTION pgpkey_ok (keyid TEXT) RETURNS BOOLEAN AS $$
+BEGIN
+	RETURN (keyid IS NULL OR
+		keyid ~ E'^[0-9a-fA-F]{8}$');
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE OR REPLACE FUNCTION pstn_ok (num TEXT) RETURNS BOOLEAN AS $$
+BEGIN
+	RETURN (num IS NULL OR
+		num ~ E'^\\+[\\d+\\.]+$');
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE TABLE trustgroup (
+	ident		TEXT	CHECK (ident_ok(ident)),
+	descr		TEXT		NOT NULL,
+	shortname	TEXT		NOT NULL,
+	min_invouch	INTEGER		NOT NULL,
+        target_invouch  INTEGER         NOT NULL,
+	pgp_required	BOOLEAN		NOT NULL,
+	please_vouch	BOOLEAN		NOT NULL,
+	vouch_adminonly	BOOLEAN		NOT NULL,
+	nom_enabled	BOOLEAN		NOT NULL,
+	min_outvouch	INTEGER		NOT NULL,
+	max_inactivity	INTERVAL	NOT NULL,
+	can_time_out	BOOLEAN		NOT NULL,
+	max_vouchdays	INTEGER		NOT NULL,
+	idle_guard	INTERVAL	NOT NULL,
+	has_wiki	BOOLEAN		NOT NULL DEFAULT false,
+	PRIMARY KEY (ident)
+);
+GRANT ALL ON TABLE trustgroup TO sysadmin;
+GRANT SELECT ON TABLE trustgroup TO www, "www-data";
+
+CREATE TABLE attestations (
+	ident		TEXT		NOT NULL
+					CHECK (ident_ok(ident)),
+	descr		TEXT		NOT NULL,
+	trustgroup	TEXT		NOT NULL REFERENCES trustgroup(ident)
+						ON UPDATE CASCADE
+						ON DELETE CASCADE,
+	PRIMARY KEY (ident, trustgroup)
+);
+GRANT ALL ON TABLE attestations TO www, "www-data", sysadmin;
+
+CREATE TABLE member_state (
+	ident		TEXT		PRIMARY KEY
+					CHECK (ident_ok(ident)),
+	can_login	BOOLEAN		NOT NULL,
+	can_see		BOOLEAN		NOT NULL,
+	can_send	BOOLEAN		NOT NULL,
+	can_recv	BOOLEAN		NOT NULL,
+	blocked		BOOLEAN		NOT NULL,
+	hidden		BOOLEAN		NOT NULL
+);
+GRANT ALL ON TABLE member_state TO sysadmin;
+GRANT SELECT ON TABLE member_state TO www, "www-data";
+
+INSERT INTO member_state VALUES ('nominated', FALSE, FALSE, FALSE, FALSE, FALSE, FALSE);
+INSERT INTO member_state VALUES ('vetted', FALSE, FALSE, FALSE, FALSE, FALSE, FALSE);
+INSERT INTO member_state VALUES ('approved', TRUE, FALSE, FALSE, FALSE, FALSE, FALSE);
+INSERT INTO member_state VALUES ('active', TRUE, TRUE, TRUE, TRUE, FALSE, FALSE);
+INSERT INTO member_state VALUES ('inactive', TRUE, TRUE, TRUE, FALSE, FALSE, FALSE);
+INSERT INTO member_state VALUES ('blocked', FALSE, FALSE, FALSE, FALSE, TRUE, TRUE);
+INSERT INTO member_state VALUES ('failed', FALSE, FALSE, FALSE, FALSE, FALSE, TRUE);
+INSERT INTO member_state VALUES ('soonidle', TRUE, TRUE, TRUE, TRUE, FALSE, FALSE);
+INSERT INTO member_state VALUES ('idle', TRUE, TRUE, TRUE, FALSE, FALSE, FALSE);
+INSERT INTO member_state VALUES ('deceased', FALSE, FALSE, FALSE, FALSE, TRUE, FALSE);
+
+CREATE TABLE member (
+	ident			TEXT		NOT NULL
+					UNIQUE
+					CHECK (ident_ok(ident)),
+	descr			TEXT		NOT NULL,
+	affiliation		TEXT		NOT NULL DEFAULT '',
+	password		TEXT		DEFAULT NULL,
+	passwd_chat		TEXT		DEFAULT NULL,
+	tz_info			TEXT		NOT NULL DEFAULT '',
+	im_info			TEXT		NOT NULL DEFAULT '',
+	tel_info		TEXT		NOT NULL DEFAULT '',
+	sms_info		TEXT		CHECK (pstn_ok(sms_info)),
+	post_info		TEXT		NOT NULL DEFAULT '',
+	bio_info		TEXT		NOT NULL DEFAULT '',
+	airport			TEXT		CHECK (length(airport) = 3),
+	no_email		BOOLEAN		NOT NULL DEFAULT FALSE, -- XXX
+	hide_email		BOOLEAN		NOT NULL DEFAULT FALSE, -- XXX
+	furlough		BOOLEAN		NOT NULL DEFAULT FALSE,
+	change_pw		BOOLEAN		NOT NULL DEFAULT FALSE,
+	entered			TIMESTAMP	NOT NULL DEFAULT NOW()::TIMESTAMP,
+	activity		TIMESTAMP	NOT NULL DEFAULT NOW()::TIMESTAMP,
+	uuid			UUID		NOT NULL UNIQUE,
+	image 			TEXT,
+	login_attempts		INT 		NOT NULL DEFAULT 0,
+	login_try_begin		TIMESTAMP,
+	sysadmin		BOOLEAN		NOT NULL DEFAULT false,
+	recover_email		TEXT		CHECK (email_ok(recover_email)),
+	recover_password	TEXT,
+	recover_password_set_at	TIMESTAMP,
+	PRIMARY KEY (ident)
+);
+GRANT ALL ON TABLE member TO www, "www-data", sysadmin;
+ALTER TABLE member ADD FOREIGN KEY (ident, recover_email)
+REFERENCES member_email (member, email)
+ON UPDATE CASCADE;-- Note: no delete-cascade here
+
+CREATE TABLE member_email (
+	member			TEXT	NOT NULL REFERENCES member(ident)
+						ON UPDATE CASCADE
+						ON DELETE CASCADE,
+	email			TEXT	NOT NULL
+						UNIQUE
+						CHECK (email_ok(email)),
+	pgpkey_id		TEXT	CHECK (pgpkey_ok(pgpkey_id)),
+	verified		BOOLEAN	NOT NULL DEFAULT FALSE,
+	pgpkey_expire		TIMESTAMP,
+	keyring			TEXT,
+	keyring_update_at	TIMESTAMP,
+	verify_token		TEXT,
+	PRIMARY KEY (member, email)
+);
+GRANT ALL ON TABLE member_email TO www, "www-data", sysadmin;
+
+ALTER TABLE member ADD recover_email TEXT
+CHECK (email_ok(recover_email));
+ALTER TABLE member ADD FOREIGN KEY (ident, recover_email)
+REFERENCES member_email (member, email)
+ON UPDATE CASCADE;-- Note: no delete-cascade here
+
+CREATE TABLE member_trustgroup (
+	member		TEXT		NOT NULL REFERENCES member(ident)
+						ON UPDATE CASCADE
+						ON DELETE CASCADE,
+	trustgroup	TEXT		NOT NULL REFERENCES trustgroup(ident)
+						ON UPDATE CASCADE
+						ON DELETE CASCADE,
+	admin		BOOLEAN		NOT NULL DEFAULT FALSE,
+	entered		TIMESTAMP	NOT NULL DEFAULT NOW()::TIMESTAMP,
+	activity	TIMESTAMP	NOT NULL DEFAULT NOW()::TIMESTAMP,
+	state		TEXT		NOT NULL REFERENCES member_state(ident)
+						ON UPDATE CASCADE
+						ON DELETE CASCADE,
+	email		TEXT		NOT NULL,
+	FOREIGN KEY (member, email)
+		REFERENCES member_email (member, email)
+		ON UPDATE CASCADE,	-- Note: no delete-cascade here
+	PRIMARY KEY (member, trustgroup)
+);
+GRANT ALL ON TABLE member_trustgroup TO www, "www-data", sysadmin;
+
+CREATE TABLE member_vouch (
+	vouchor		TEXT		NOT NULL REFERENCES member(ident)
+						ON UPDATE CASCADE
+						ON DELETE CASCADE,
+	vouchee		TEXT		NOT NULL REFERENCES member(ident)
+						ON UPDATE CASCADE
+						ON DELETE CASCADE,
+	trustgroup	TEXT		NOT NULL REFERENCES trustgroup(ident)
+						ON UPDATE CASCADE
+						ON DELETE CASCADE,
+	comment		TEXT		NOT NULL DEFAULT '',
+	entered		TIMESTAMP	NOT NULL DEFAULT NOW()::TIMESTAMP,
+	positive	BOOLEAN		NOT NULL,
+	FOREIGN KEY (vouchor, trustgroup)
+		REFERENCES member_trustgroup (member, trustgroup)
+		ON UPDATE CASCADE ON DELETE CASCADE,
+	FOREIGN KEY (vouchee, trustgroup)
+		REFERENCES member_trustgroup (member, trustgroup)
+		ON UPDATE CASCADE ON DELETE CASCADE,
+	PRIMARY KEY (vouchor, vouchee, trustgroup)
+);
+GRANT ALL ON TABLE member_vouch TO www, "www-data", sysadmin;
+
+CREATE TABLE mailinglist (
+	lhs		TEXT		NOT NULL CHECK (lhs_ok(lhs)),
+	trustgroup	TEXT		NOT NULL REFERENCES trustgroup(ident)
+						ON UPDATE CASCADE
+						ON DELETE CASCADE,
+	descr		TEXT		NOT NULL,
+	members_only	BOOLEAN		NOT NULL DEFAULT FALSE,
+	can_add_self	BOOLEAN		NOT NULL DEFAULT FALSE,
+	automatic	BOOLEAN		NOT NULL DEFAULT FALSE,
+	always_crypt	BOOLEAN		NOT NULL DEFAULT FALSE,
+	virtual		BOOLEAN		NOT NULL DEFAULT FALSE,
+	activity	TIMESTAMP WITHOUT TIME ZONE,
+	email_footer	TEXT,
+	pubkey		TEXT,
+	key_update_at 	TIMESTAMP,
+	seckey		TEXT,
+	PRIMARY KEY (lhs, trustgroup),
+	UNIQUE (lhs, trustgroup, virtual)
+);
+GRANT ALL ON TABLE mailinglist TO www, "www-data", sysadmin;
+
+CREATE TABLE member_mailinglist (
+	member		TEXT		NOT NULL REFERENCES member(ident)
+						ON UPDATE CASCADE
+						ON DELETE CASCADE,
+	lhs		TEXT		NOT NULL,
+	trustgroup	TEXT		NOT NULL REFERENCES trustgroup(ident)
+						ON UPDATE CASCADE
+						ON DELETE CASCADE,
+	virtual		BOOLEAN		NOT NULL DEFAULT FALSE
+						CHECK (NOT virtual),
+	PRIMARY KEY (member, lhs, trustgroup),
+	FOREIGN KEY (lhs, trustgroup, virtual)
+		REFERENCES mailinglist(lhs, trustgroup, virtual)
+		ON UPDATE CASCADE ON DELETE CASCADE,
+	FOREIGN KEY (member, trustgroup)
+		REFERENCES member_trustgroup (member, trustgroup)
+		ON UPDATE CASCADE ON DELETE CASCADE
+);
+GRANT ALL ON TABLE member_mailinglist TO www, "www-data", sysadmin;
+
+CREATE TABLE audit_history (
+	member		TEXT		REFERENCES member(ident)
+						ON UPDATE CASCADE
+						ON DELETE SET NULL,
+	what		TEXT		NOT NULL,
+	entered		TIMESTAMP	NOT NULL
+					DEFAULT NOW()::TIMESTAMP
+);
+CREATE INDEX audit_history_entered ON audit_history (entered);
+GRANT ALL ON TABLE audit_history TO www, "www-data", sysadmin;
+
+CREATE TABLE member_detail_types (
+	type		TEXT	NOT NULL
+				UNIQUE,
+	display_name	TEXT	NOT NULL
+				UNIQUE
+);
+GRANT SELECT ON TABLE member_detail_types to www, "www-data";
+GRANT ALL ON TABLE member_detail_types TO sysadmin;
+
+INSERT INTO member_detail_types VALUES ('callsign','Amateur radio callsign');
+
+CREATE TABLE member_details (
+	member	TEXT	NOT NULL REFERENCES member(ident)
+				ON UPDATE CASCADE
+				ON DELETE CASCADE,
+	type	TEXT	NOT NULL REFERENCES member_detail_types(type)
+				ON UPDATE CASCADE
+				ON DELETE CASCADE,
+	entered	TIMESTAMP
+			NOT NULL 
+			DEFAULT NOW()::TIMESTAMP,
+	value	TEXT	NOT NULL
+);
+GRANT ALL ON TABLE member_details TO www, "www-data", sysadmin;
+
+CREATE TABLE languages (
+	iso_639_1	TEXT		CHECK(LENGTH(iso_639_1) = 2)
+					NOT NULL
+					UNIQUE,
+	name		TEXT		NOT NULL
+					UNIQUE
+);
+
+GRANT SELECT ON TABLE languages to www, "www-data";
+GRANT ALL ON TABLE languages TO sysadmin;
+
+INSERT INTO languages (iso_639_1,name) values ('aa','Afar');
+INSERT INTO languages (iso_639_1,name) values ('ak','Akan');
+INSERT INTO languages (iso_639_1,name) values ('as','Assamese');
+INSERT INTO languages (iso_639_1,name) values ('ba','Bashkir');
+INSERT INTO languages (iso_639_1,name) values ('bi','Bislama');
+INSERT INTO languages (iso_639_1,name) values ('br','Breton');
+INSERT INTO languages (iso_639_1,name) values ('ch','Chamorro');
+INSERT INTO languages (iso_639_1,name) values ('cs','Czech');
+INSERT INTO languages (iso_639_1,name) values ('da','Danish');
+INSERT INTO languages (iso_639_1,name) values ('ee','Ewe');
+INSERT INTO languages (iso_639_1,name) values ('es','Spanish');
+INSERT INTO languages (iso_639_1,name) values ('ff','Fulah');
+INSERT INTO languages (iso_639_1,name) values ('fr','French');
+INSERT INTO languages (iso_639_1,name) values ('gl','Galician');
+INSERT INTO languages (iso_639_1,name) values ('ha','Hausa');
+INSERT INTO languages (iso_639_1,name) values ('hr','Croatian');
+INSERT INTO languages (iso_639_1,name) values ('hz','Herero');
+INSERT INTO languages (iso_639_1,name) values ('ig','Igbo');
+INSERT INTO languages (iso_639_1,name) values ('io','Ido');
+INSERT INTO languages (iso_639_1,name) values ('iu','Inuktitut');
+INSERT INTO languages (iso_639_1,name) values ('jv','Javanese');
+INSERT INTO languages (iso_639_1,name) values ('ki','Kikuyu');
+INSERT INTO languages (iso_639_1,name) values ('km','Central Khmer');
+INSERT INTO languages (iso_639_1,name) values ('ks','Kashmiri');
+INSERT INTO languages (iso_639_1,name) values ('ky','Kirghiz');
+INSERT INTO languages (iso_639_1,name) values ('li','Limburgan');
+INSERT INTO languages (iso_639_1,name) values ('lu','Luba-Katanga');
+INSERT INTO languages (iso_639_1,name) values ('mi','Maori');
+INSERT INTO languages (iso_639_1,name) values ('my','Burmese');
+INSERT INTO languages (iso_639_1,name) values ('ne','Nepali');
+INSERT INTO languages (iso_639_1,name) values ('no','Norwegian');
+INSERT INTO languages (iso_639_1,name) values ('oc','Occitan (post 1500)');
+INSERT INTO languages (iso_639_1,name) values ('os','Ossetian');
+INSERT INTO languages (iso_639_1,name) values ('ps','Pushto');
+INSERT INTO languages (iso_639_1,name) values ('rn','Rundi');
+INSERT INTO languages (iso_639_1,name) values ('sa','Sanskrit');
+INSERT INTO languages (iso_639_1,name) values ('sg','Sango');
+INSERT INTO languages (iso_639_1,name) values ('sl','Slovenian');
+INSERT INTO languages (iso_639_1,name) values ('sq','Albanian');
+INSERT INTO languages (iso_639_1,name) values ('su','Sundanese');
+INSERT INTO languages (iso_639_1,name) values ('te','Telugu');
+INSERT INTO languages (iso_639_1,name) values ('tk','Turkmen');
+INSERT INTO languages (iso_639_1,name) values ('tr','Turkish');
+INSERT INTO languages (iso_639_1,name) values ('ty','Tahitian');
+INSERT INTO languages (iso_639_1,name) values ('uz','Uzbek');
+INSERT INTO languages (iso_639_1,name) values ('wa','Walloon');
+INSERT INTO languages (iso_639_1,name) values ('yo','Yoruba');
+INSERT INTO languages (iso_639_1,name) values ('ab','Abkhazian');
+INSERT INTO languages (iso_639_1,name) values ('am','Amharic');
+INSERT INTO languages (iso_639_1,name) values ('av','Avaric');
+INSERT INTO languages (iso_639_1,name) values ('be','Belarusian');
+INSERT INTO languages (iso_639_1,name) values ('bm','Bambara');
+INSERT INTO languages (iso_639_1,name) values ('bs','Bosnian');
+INSERT INTO languages (iso_639_1,name) values ('co','Corsican');
+INSERT INTO languages (iso_639_1,name) values ('cu','Church Slavic');
+INSERT INTO languages (iso_639_1,name) values ('de','German');
+INSERT INTO languages (iso_639_1,name) values ('el','Greek, Modern (1453-)');
+INSERT INTO languages (iso_639_1,name) values ('et','Estonian');
+INSERT INTO languages (iso_639_1,name) values ('fi','Finnish');
+INSERT INTO languages (iso_639_1,name) values ('fy','Western Frisian');
+INSERT INTO languages (iso_639_1,name) values ('gn','Guarani');
+INSERT INTO languages (iso_639_1,name) values ('he','Hebrew');
+INSERT INTO languages (iso_639_1,name) values ('ht','Haitian');
+INSERT INTO languages (iso_639_1,name) values ('ia','Interlingua (International Auxiliary Language Association)');
+INSERT INTO languages (iso_639_1,name) values ('ii','Sichuan Yi');
+INSERT INTO languages (iso_639_1,name) values ('is','Icelandic');
+INSERT INTO languages (iso_639_1,name) values ('kj','Kuanyama');
+INSERT INTO languages (iso_639_1,name) values ('kn','Kannada');
+INSERT INTO languages (iso_639_1,name) values ('ku','Kurdish');
+INSERT INTO languages (iso_639_1,name) values ('la','Latin');
+INSERT INTO languages (iso_639_1,name) values ('ln','Lingala');
+INSERT INTO languages (iso_639_1,name) values ('lv','Latvian');
+INSERT INTO languages (iso_639_1,name) values ('mk','Macedonian');
+INSERT INTO languages (iso_639_1,name) values ('mr','Marathi');
+INSERT INTO languages (iso_639_1,name) values ('na','Nauru');
+INSERT INTO languages (iso_639_1,name) values ('ng','Ndonga');
+INSERT INTO languages (iso_639_1,name) values ('nr','Ndebele, South');
+INSERT INTO languages (iso_639_1,name) values ('oj','Ojibwa');
+INSERT INTO languages (iso_639_1,name) values ('pa','Panjabi');
+INSERT INTO languages (iso_639_1,name) values ('pt','Portuguese');
+INSERT INTO languages (iso_639_1,name) values ('ro','Romanian');
+INSERT INTO languages (iso_639_1,name) values ('sc','Sardinian');
+INSERT INTO languages (iso_639_1,name) values ('sm','Samoan');
+INSERT INTO languages (iso_639_1,name) values ('sr','Serbian');
+INSERT INTO languages (iso_639_1,name) values ('sv','Swedish');
+INSERT INTO languages (iso_639_1,name) values ('tg','Tajik');
+INSERT INTO languages (iso_639_1,name) values ('tl','Tagalog');
+INSERT INTO languages (iso_639_1,name) values ('ts','Tsonga');
+INSERT INTO languages (iso_639_1,name) values ('ug','Uighur');
+INSERT INTO languages (iso_639_1,name) values ('ve','Venda');
+INSERT INTO languages (iso_639_1,name) values ('wo','Wolof');
+INSERT INTO languages (iso_639_1,name) values ('za','Zhuang');
+INSERT INTO languages (iso_639_1,name) values ('ae','Avestan');
+INSERT INTO languages (iso_639_1,name) values ('an','Aragonese');
+INSERT INTO languages (iso_639_1,name) values ('ay','Aymara');
+INSERT INTO languages (iso_639_1,name) values ('bg','Bulgarian');
+INSERT INTO languages (iso_639_1,name) values ('bn','Bengali');
+INSERT INTO languages (iso_639_1,name) values ('ca','Catalan');
+INSERT INTO languages (iso_639_1,name) values ('cv','Chuvash');
+INSERT INTO languages (iso_639_1,name) values ('dv','Divehi');
+INSERT INTO languages (iso_639_1,name) values ('en','English');
+INSERT INTO languages (iso_639_1,name) values ('eu','Basque');
+INSERT INTO languages (iso_639_1,name) values ('fj','Fijian');
+INSERT INTO languages (iso_639_1,name) values ('ga','Irish');
+INSERT INTO languages (iso_639_1,name) values ('gu','Gujarati');
+INSERT INTO languages (iso_639_1,name) values ('hi','Hindi');
+INSERT INTO languages (iso_639_1,name) values ('hu','Hungarian');
+INSERT INTO languages (iso_639_1,name) values ('id','Indonesian');
+INSERT INTO languages (iso_639_1,name) values ('ik','Inupiaq');
+INSERT INTO languages (iso_639_1,name) values ('ja','Japanese');
+INSERT INTO languages (iso_639_1,name) values ('ka','Georgian');
+INSERT INTO languages (iso_639_1,name) values ('kk','Kazakh');
+INSERT INTO languages (iso_639_1,name) values ('ko','Korean');
+INSERT INTO languages (iso_639_1,name) values ('kv','Komi');
+INSERT INTO languages (iso_639_1,name) values ('lb','Luxembourgish');
+INSERT INTO languages (iso_639_1,name) values ('lo','Lao');
+INSERT INTO languages (iso_639_1,name) values ('mg','Malagasy');
+INSERT INTO languages (iso_639_1,name) values ('ml','Malayalam');
+INSERT INTO languages (iso_639_1,name) values ('ms','Malay');
+INSERT INTO languages (iso_639_1,name) values ('nb','Bokm\u00E5l, Norwegian');
+INSERT INTO languages (iso_639_1,name) values ('nl','Dutch');
+INSERT INTO languages (iso_639_1,name) values ('nv','Navajo');
+INSERT INTO languages (iso_639_1,name) values ('om','Oromo');
+INSERT INTO languages (iso_639_1,name) values ('pi','Pali');
+INSERT INTO languages (iso_639_1,name) values ('qu','Quechua');
+INSERT INTO languages (iso_639_1,name) values ('ru','Russian');
+INSERT INTO languages (iso_639_1,name) values ('sd','Sindhi');
+INSERT INTO languages (iso_639_1,name) values ('si','Sinhala');
+INSERT INTO languages (iso_639_1,name) values ('sn','Shona');
+INSERT INTO languages (iso_639_1,name) values ('ss','Swati');
+INSERT INTO languages (iso_639_1,name) values ('sw','Swahili');
+INSERT INTO languages (iso_639_1,name) values ('th','Thai');
+INSERT INTO languages (iso_639_1,name) values ('tn','Tswana');
+INSERT INTO languages (iso_639_1,name) values ('tt','Tatar');
+INSERT INTO languages (iso_639_1,name) values ('uk','Ukrainian');
+INSERT INTO languages (iso_639_1,name) values ('vi','Vietnamese');
+INSERT INTO languages (iso_639_1,name) values ('xh','Xhosa');
+INSERT INTO languages (iso_639_1,name) values ('zh','Chinese');
+INSERT INTO languages (iso_639_1,name) values ('af','Afrikaans');
+INSERT INTO languages (iso_639_1,name) values ('ar','Arabic');
+INSERT INTO languages (iso_639_1,name) values ('az','Azerbaijani');
+INSERT INTO languages (iso_639_1,name) values ('bh','Bihari languages');
+INSERT INTO languages (iso_639_1,name) values ('bo','Tibetan');
+INSERT INTO languages (iso_639_1,name) values ('ce','Chechen');
+INSERT INTO languages (iso_639_1,name) values ('cr','Cree');
+INSERT INTO languages (iso_639_1,name) values ('cy','Welsh');
+INSERT INTO languages (iso_639_1,name) values ('dz','Dzongkha');
+INSERT INTO languages (iso_639_1,name) values ('eo','Esperanto');
+INSERT INTO languages (iso_639_1,name) values ('fa','Persian');
+INSERT INTO languages (iso_639_1,name) values ('fo','Faroese');
+INSERT INTO languages (iso_639_1,name) values ('gd','Gaelic');
+INSERT INTO languages (iso_639_1,name) values ('gv','Manx');
+INSERT INTO languages (iso_639_1,name) values ('ho','Hiri Motu');
+INSERT INTO languages (iso_639_1,name) values ('hy','Armenian');
+INSERT INTO languages (iso_639_1,name) values ('ie','Interlingue');
+INSERT INTO languages (iso_639_1,name) values ('it','Italian');
+INSERT INTO languages (iso_639_1,name) values ('kg','Kongo');
+INSERT INTO languages (iso_639_1,name) values ('kl','Kalaallisut');
+INSERT INTO languages (iso_639_1,name) values ('kr','Kanuri');
+INSERT INTO languages (iso_639_1,name) values ('kw','Cornish');
+INSERT INTO languages (iso_639_1,name) values ('lg','Ganda');
+INSERT INTO languages (iso_639_1,name) values ('lt','Lithuanian');
+INSERT INTO languages (iso_639_1,name) values ('mh','Marshallese');
+INSERT INTO languages (iso_639_1,name) values ('mn','Mongolian');
+INSERT INTO languages (iso_639_1,name) values ('mt','Maltese');
+INSERT INTO languages (iso_639_1,name) values ('nd','Ndebele, North');
+INSERT INTO languages (iso_639_1,name) values ('nn','Norwegian Nynorsk');
+INSERT INTO languages (iso_639_1,name) values ('ny','Chichewa');
+INSERT INTO languages (iso_639_1,name) values ('or','Oriya');
+INSERT INTO languages (iso_639_1,name) values ('pl','Polish');
+INSERT INTO languages (iso_639_1,name) values ('rm','Romansh');
+INSERT INTO languages (iso_639_1,name) values ('rw','Kinyarwanda');
+INSERT INTO languages (iso_639_1,name) values ('se','Northern Sami');
+INSERT INTO languages (iso_639_1,name) values ('sk','Slovak');
+INSERT INTO languages (iso_639_1,name) values ('so','Somali');
+INSERT INTO languages (iso_639_1,name) values ('st','Sotho, Southern');
+INSERT INTO languages (iso_639_1,name) values ('ta','Tamil');
+INSERT INTO languages (iso_639_1,name) values ('ti','Tigrinya');
+INSERT INTO languages (iso_639_1,name) values ('to','Tonga (Tonga Islands)');
+INSERT INTO languages (iso_639_1,name) values ('tw','Twi');
+INSERT INTO languages (iso_639_1,name) values ('ur','Urdu');
+INSERT INTO languages (iso_639_1,name) values ('vo','Volap\u00FCk');
+INSERT INTO languages (iso_639_1,name) values ('yi','Yiddish');
+INSERT INTO languages (iso_639_1,name) values ('zu','Zulu');
+
+CREATE TABLE language_skill (
+	skill	TEXT	NOT NULL
+			UNIQUE,
+	seq	INTEGER	NOT NULL
+			UNIQUE
+);
+GRANT SELECT ON TABLE language_skill to www, "www-data";
+GRANT ALL ON TABLE language_skill TO sysadmin;
+
+INSERT INTO language_skill (skill,seq) VALUES ('native',4);
+INSERT INTO language_skill (skill,seq) VALUES ('expert',3);
+INSERT INTO language_skill (skill,seq) VALUES ('intermediate',2);
+INSERT INTO language_skill (skill,seq) VALUES ('basic',1);
+
+CREATE TABLE member_language_skill (
+	member		TEXT	NOT NULL REFERENCES member(ident)
+					ON UPDATE CASCADE
+					ON DELETE CASCADE,
+	language	TEXT  	NOT NULL REFERENCES languages(iso_639_1)
+					ON UPDATE CASCADE
+					ON DELETE CASCADE,
+	skill		TEXT	NOT NULL REFERENCES language_skill(skill)
+					ON UPDATE CASCADE
+					ON DELETE CASCADE,
+	entered  TIMESTAMP NOT NULL DEFAULT NOW()::TIMESTAMP,
+	UNIQUE(member,language)
+);
+
+GRANT ALL ON TABLE member_language_skill TO sysadmin, www, "www-data";
+
+--per http://search.cpan.org/~sherzodr/CGI-Session-3.95/Session/PostgreSQL.pm
+CREATE TABLE web_sessions (
+	id		CHAR(32)	NOT NULL,
+	a_session	TEXT		NOT NULL,
+	PRIMARY KEY (id)
+);
+GRANT ALL ON TABLE web_sessions TO www, "www-data", sysadmin;
+
+-- For openid functionality we need to keep track of the associations that are created. 
+CREATE TABLE openid_associations (
+	uuid		UUID		NOT NULL UNIQUE,
+	assoc_type	TEXT		NOT NULL,
+	session_type	TEXT		NOT NULL,
+	mac_key		TEXT		NOT NULL,
+	timestamp	TIMESTAMP	NOT NULL,
+	PRIMARY KEY (uuid)
+);
+
+GRANT ALL ON openid_associations TO www, "www-data", sysadmin;
+
+-- To preven burte forcing we need to keep track of the source IP of login attempts.
+CREATE TABLE openid_source_cache (
+	src_ip		INET		NOT NULL UNIQUE,
+	last_try	TIMESTAMP	NOT NULL,
+	attempt_count	INT		NOT NULL DEFAULT 1,
+	PRIMARY KEY (src_ip)
+);
+
+GRANT ALL ON openid_source_cache TO www, "www-data", sysadmin;
+
+CREATE TABLE second_factor_types (
+	type	TEXT	NOT NULL UNIQUE,
+	descr	TEXT	NOT NULL
+);
+GRANT SELECT ON TABLE second_factor_types to www, "www-data";
+GRANT ALL ON TABLE second_factor_types TO sysadmin;
+
+CREATE TABLE second_factors (
+	uuid	UUID		NOT NULL UNIQUE PRIMARY KEY,
+	member	TEXT		NOT NULL REFERENCES member(ident)
+					ON UPDATE CASCADE
+					ON DELETE CASCADE,
+	type	TEXT		NOT NULL REFERENCES second_factor_types(type)
+					ON UPDATE CASCADE
+					ON DELETE CASCADE,
+	entered	TIMESTAMP	NOT NULL DEFAULT NOW()::TIMESTAMP,
+	active	BOOLEAN		NOT NULL DEFAULT false,
+	counter	INTEGER		DEFAULT 0,
+	key	TEXT,
+	descr	TEXT
+);
+GRANT ALL ON TABLE second_factors TO www, "www-data", sysadmin;
+
+INSERT INTO second_factor_types (type,descr) 
+	VALUES ('HOTP','HMAC based One Time Password - HOPT');
+INSERT INTO second_factor_types (type,descr)
+	VALUES ('TOTP','Time based One Time Password - TOPT');
+INSERT INTO second_factor_types (type,descr)
+	VALUES ('SOTP','static single use codes');
+
+CREATE TABLE schema_metadata (
+	key	TEXT,
+	value	INT	NOT NULL DEFAULT 0,
+	PRIMARY KEY (key)
+);
+
+GRANT ALL ON schema_metadata TO sysadmin;
+
+CREATE TABLE message_types (
+	ident	TEXT,
+	descr	TEXT,
+	PRIMARY KEY (ident)
+);
+
+GRANT ALL ON message_types TO www, "www-data", sysadmin;
+
+INSERT INTO message_types (ident,descr) 
+VALUES ('web_global_hello','Global public about Ops-t page');
+INSERT INTO message_types (ident,descr) 
+VALUES ('web_tg_hello','TG unique welcome message, after login');
+INSERT INTO message_types (ident,descr) 
+VALUES ('email_statechange_vetted','Message sent when state changed to vetted');
+
+--Store the message templates.
+CREATE TABLE message_catalog (
+	trustgroup TEXT REFERENCES trustgroup(ident)
+		ON UPDATE CASCADE
+		ON DELETE CASCADE,
+	message_type TEXT NOT NULL REFERENCES message_types(ident),
+	message_template	TEXT
+);
+
+GRANT ALL ON message_catalog TO www, "www-data", sysadmin;
+
+CREATE TABLE notices (
+  ID         SERIAL UNIQUE NOT NULL,
+  CREATED_AT TIMESTAMP NOT NULL DEFAULT NOW()::TIMESTAMP,
+  EXPIRE_AT  TIMESTAMP, -- can be null, if we don't know when to expire.
+  MESSAGE    TEXT NOT NULL
+);
+ALTER TABLE member ADD last_notice INT REFERENCES notices(id);
+
+
+
+-- Last Line: Make setting schema version the last step, easy to find.
+INSERT INTO schema_metadata (key,value)
+VALUES ('portal_schema_version',7);

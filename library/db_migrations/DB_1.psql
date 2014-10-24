@@ -1,0 +1,6 @@
+--Schema Version 1
+BEGIN;
+
+-- Just test that we can update the schema version. 
+UPDATE schema_version set current_version = 2;
+COMMIT;

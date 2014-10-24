@@ -1,0 +1,36 @@
+	<P>
+% if (! $Site->{change_pw}) {
+%   if (!defined $Site->{tg}) {
+	<EM>Trustgroup not set</EM>
+	(<A HREF="/site/select_tg.html">Select TG</A>)
+%   } else {
+	<B><%$Site->{tg}->{descr}%></B>
+%   }
+%   if ($Mech->{sess}->param('ntg') > 1) {
+	(<A HREF="/site/select_tg.html">change</A>)
+%   }
+	<% $Site->{admin} ? '&Omega;' : '' %></P>
+%   if ($Site->{can_see}) {
+	<P><A HREF="/site/list_members.html">Members</A></P>
+	<P><A HREF="/site/list_airports.html">Airports</A></P>
+	<P><A HREF="/site/list_languages.html">Languages</A></P>
+%   if ($Site->{admin} || $Site->{tg}->{nom_enabled}) {
+	<P><A HREF="/site/nominate.html">Nominate</A></P>
+%   }
+%   if ($Site->{admin} || !$Site->{tg}->{vouch_adminonly}) {
+	<P><A HREF="/site/vouch_cp.html">Vouch Ctl Panel</A></P>
+%   }
+%   my $tgname = $Site->{tg}->{ident};
+%   my $wiki_url = sprintf $common::wiki, $tgname;
+	<P><A HREF="/site/mailinglist.html">Mailing Lists</A></P>
+	<P><A HREF="/site/emit_pgp.html">PGP keys</A></P>
+	<P><A HREF="/site/emit_emerg.html">Emergency contacts</A></P>
+	<P><A HREF="/site/emit_vouch.html">List Vouches (CSV)</A></P>
+% if ($Site->{tg}->{has_wiki}) {
+        <P><A HREF="<%$wiki_url%>">Wiki</A></P>
+% }
+	<P><A HREF="/site/edit_contact.html">Edit profile</A></P>
+	<P><A HREF="/site/show_member.html">Show profile</A></P>
+%   }
+% }
+<P><A HREF="/site/chpw.html">Change password</A></P>

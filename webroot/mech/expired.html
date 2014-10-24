@@ -1,0 +1,15 @@
+<H3>Expired</H3>
+<P>Your session has expired.</P>
+
+<%method is_public>
+# no-op, just here to tell autohandler that this page can be
+# accessed without logging first.
+</%method>
+
+<%method tg_not_needed>
+# tells sitehandler.mas:request_ok that we don't need a trustgroup here
+</%method>
+
+<%method vetting_not_needed>
+# tells sitehandler.mas:request_ok that we don't need vetting here
+</%method>

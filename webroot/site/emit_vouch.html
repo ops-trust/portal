@@ -1,0 +1,48 @@
+<%args>
+$member => ''
+</%args>
+
+<%perl>
+$m->clear_buffer();
+$r->content_type('text/plain');
+$r->header_out('Cache-Control' => 'no-cache');
+my $filename = "${common::dbname}.$tg->{ident}.vouch.txt";
+$r->err_headers_out->add(
+	'Content-Disposition' => qq{inline; filename="$filename"}
+);
+
+printf "%s,%s,%s\n", 'Vouchor', 'Vouchee', 'Entered';
+foreach my $row (@{$dbh->selectall_arrayref(qq{
+	SELECT mv.vouchor, mv.vouchee, DATE(mv.entered) AS entered
+	  FROM member_vouch mv
+	  JOIN member m1 ON (mv.vouchor = m1.ident)
+	  JOIN member m2 ON (mv.vouchee = m2.ident)
+	  JOIN member_trustgroup mt1 ON
+		ROW(mv.vouchor, mv.trustgroup) =
+			ROW(mt1.member, mt1.trustgroup)
+	  JOIN member_trustgroup mt2 ON
+		ROW(mv.vouchee, mv.trustgroup) =
+			ROW(mt2.member, mt2.trustgroup)
+	  JOIN member_state ms1 ON (mt1.state = ms1.ident)
+	  JOIN member_state ms2 ON (mt2.state = ms2.ident)
+	 WHERE mv.trustgroup = $tg->{db_ident}
+	   AND ms1.can_login
+	   AND ms2.can_login
+	   AND mv.positive
+}, {Slice => {}})}) {
+	printf "%s,%s,%s\n", $row->{vouchor}, $row->{vouchee}, $row->{entered};
+}
+$m->abort();
+</%perl>
+
+<%shared>
+my $q = undef;
+my $dbh = undef;
+my $tg = undef;
+</%shared>
+
+<%init>
+$q = $Mech->{cgi};
+$dbh = $Site->{dbh};
+$tg = $Site->{tg};
+</%init>

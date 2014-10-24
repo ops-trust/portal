@@ -1,0 +1,479 @@
+<%args>
+$member => ''
+$attestation => ''
+@attestations => ()
+$vouchor => ''
+$vouchee => ''
+$comment => ''
+$submit => ''
+$fetch => ''
+$form_id => ''
+</%args>
+
+% $member = $Site->{member} unless length $member;
+
+<%perl>
+$q->delete_all();
+my $db_member = $dbh->quote($member);
+my $row = $dbh->selectrow_hashref(qq{
+	SELECT m.ident, mt.email, m.uuid, m.descr, m.affiliation, me.pgpkey_id,
+		m.tz_info, m.im_info, m.tel_info, m.sms_info,
+		m.post_info, m.bio_info, m.airport,
+		m.furlough, mt.state AS state, m.image,
+		DATE_TRUNC('seconds', m.entered) AS entered,
+		DATE_TRUNC('seconds', m.activity) AS activity,
+		DATE_TRUNC('days', AGE(m.activity)) AS inactivity
+	  FROM member m
+	  JOIN member_trustgroup mt ON (ROW(mt.member, mt.trustgroup) =
+					ROW(m.ident, $tg->{db_ident}))
+	  JOIN member_email me ON (ROW(me.member, me.email) =
+					ROW(mt.member, mt.email))
+	  JOIN member_state ms ON (ms.ident = mt.state)
+	 WHERE m.ident = $db_member
+	   AND NOT ms.hidden
+});
+if (!defined $row) {
+	print $q->p("No contact information on file?");
+	return;
+}
+my $email = $row->{email};
+my $ident = $row->{ident};
+my $db_ident = $dbh->quote($ident);
+
+#if (length $submit) {
+#	$m->abort(403) unless $form_id eq $Mech->{sess}->param('form_id');
+#}
+
+print $q->h3("Member Information for <CODE>$row->{ident}</CODE>".
+	" ($row->{descr})");
+
+my $postscript = '';
+if ($submit eq 'Delete') {
+	if ($vouchor ne $Site->{member}) {
+		$postscript .= $q->hr() .
+			$q->p('You can only delete your own vouches.');
+	} else {
+		my $db_vouchee = $dbh->quote($vouchee);
+		my $db_vouchor = $dbh->quote($vouchor);
+		my $stmt = qq{
+			DELETE FROM member_vouch mv
+			WHERE ROW(mv.vouchee, mv.vouchor, mv.trustgroup) =
+				ROW($db_vouchee, $db_vouchor, $tg->{db_ident})
+			  AND positive
+		};
+		my $errstr = &common::audited_do($dbh,
+					$Site->{member}, $stmt);
+		if (length $errstr) {
+			$postscript .= $q->hr() . $q->p("Failure: $errstr");
+		} else {
+			&common::state_mon($vouchor);
+			&common::state_mon($vouchee);
+			$postscript .= $q->hr() . $q->p('Gone.');
+			$q->delete(qw[vouchor vouchee]);
+		}
+	}
+} elsif ($submit eq 'Commit') {
+	if ($vouchor ne $Site->{member}) {
+		$postscript .= $q->hr() .
+			$q->p('You can only edit your own vouches.');
+	} else {
+		my $db_vouchee = $dbh->quote($vouchee);
+		my $db_vouchor = $dbh->quote($vouchor);
+		my $db_comment = $dbh->quote($comment);
+		my $stmt = qq{
+			UPDATE member_vouch mv
+			   SET comment = $db_comment
+			WHERE ROW(mv.vouchee, mv.vouchor, mv.trustgroup) =
+				ROW($db_vouchee, $db_vouchor, $tg->{db_ident})
+			  AND positive
+		};
+		my $errstr = &common::audited_do($dbh,
+					$Site->{member}, $stmt);
+		if (length $errstr) {
+			$postscript .= $q->hr() . $q->p("Failure: $errstr");
+		} else {
+			&common::state_mon($vouchor);
+			&common::state_mon($vouchee);
+			$postscript .= $q->hr() . $q->p('Committed.');
+			$q->delete(qw[vouchor vouchee]);
+		}
+	}
+
+} elsif ($submit eq 'Vouch') {
+	my %attestations = map { $_ => ''; } @attestations;
+	my $unchecked = 0;
+	map { $unchecked++ unless defined $attestations{$_} } keys %$att;
+	if (!$Site->{admin} && $tg->{vouch_adminonly}) {
+		$postscript .= $q->hr() .
+			$q->p('Only admins can vouch in this trustgroup');
+	} elsif (!length $attestation || $unchecked != 0) {
+		$postscript .= $q->hr() . $q->p('Attestation is required');
+	} else {
+		if ($row->{state} eq 'failed') {
+			# errors are ignored due to possible race conditions
+			&common::audited_do($dbh, $Site->{member}, qq{
+				UPDATE	member_trustgroup
+				SET	state = 'nominated',
+					entered = NOW()::TIMESTAMP
+				WHERE	ROW(member, trustgroup, state) =
+				    ROW($db_ident, $tg->{db_ident}, 'failed');
+			});
+		}
+		# errors are ignored due to possible race conditions
+		&common::audited_do($dbh, $Site->{member}, qq{
+			DELETE FROM member_vouch mv
+			WHERE ROW(mv.vouchee, mv.vouchor,
+					mv.trustgroup) =
+				ROW($db_ident, $Site->{db_member},
+					$tg->{db_ident})
+			  AND NOT positive
+		});
+		my $db_attestation = $dbh->quote($attestation);
+		my $stmt = qq{
+			INSERT INTO member_vouch
+				(vouchor, vouchee, 
+				 comment, trustgroup, positive)
+			VALUES
+				($Site->{db_member}, $db_ident,
+				 $db_attestation, $tg->{db_ident}, TRUE);
+		};
+		my $errstr = &common::audited_do($dbh, $Site->{member}, $stmt);
+		if (length $errstr) {
+			$postscript .= $q->hr() . $q->p("Failure: $errstr");
+		} else {
+			$postscript .= $q->hr() . $q->p('So noted.');
+			$q->delete(qw[attestation]);
+			&common::state_mon($Site->{member});
+			&common::state_mon($ident);
+			#
+			# tell the parties that a new vouch has occurred
+			#
+			my @to = (common::member_email($dbh, $Site->{member},
+				$tg));
+			push @to, $email if $row->{state} eq 'active';
+			&common::email_send($tg, $common::hostmaster,	# from
+				\@to,					# to
+				undef,					# cc
+				undef,					# rply2
+				"$row->{ident} <= $Site->{member} (vouch)",
+									# subj
+\qq{$Site->{member} has vouched for
+$row->{ident} ($row->{descr})
+on $tg->{descr}
+}									# body
+			);
+		}
+	}
+} elsif ($Site->{admin} && $submit eq 'Approve') {
+	my $errstr = &common::audited_do($dbh, $Site->{member}, qq{
+		UPDATE	member_trustgroup
+		   SET	state = 'approved'
+		WHERE	ROW(member, trustgroup, state) =
+				ROW($db_ident, $tg->{db_ident}, 'vetted');
+	});
+	if (length $errstr) {
+		$postscript .= $q->hr() . $q->p("Failure: $errstr");
+	} else {
+		&common::notify_newlyapproved($db_ident, $email, $tg);
+		$row->{state} = 'approved';
+	}
+}
+
+my $approve_button = ($Site->{admin} && $row->{state} eq 'vetted')
+	? $q->start_form .
+		$q->hidden({-override => 1}, 'form_id', $form_id) .
+		$q->submit('submit', 'Approve') .
+		$q->end_form
+	: '';
+
+my $languages;
+my $language_count =0;
+foreach my $language (@{$dbh->selectall_arrayref(qq{
+	SELECT l.name,mls.language,mls.skill
+	FROM  languages l, member_language_skill mls 
+	WHERE l.iso_639_1 = mls.language 
+		AND mls.member = $db_ident
+	ORDER BY l.name
+}, {Slice => {}})}) {
+	$language_count ++;
+	$languages .= $q->Tr($q->td($language->{name}," - ",$language->{skill}));
+}
+$languages = $q->td('Language Skills:').
+	$q->td([
+	$q->start_table({-border=>0, -cellspacing=>5, -cellpadding=>5}).
+	$languages.
+	$q->end_table]);
+$languages = "" unless $language_count;
+
+my $member_details = '';
+my $detail_count = 0;
+foreach my $detail (@{$dbh->selectall_arrayref(qq{
+        SELECT mdt.display_name,md.value
+        FROM  member_detail_types mdt , member_details md
+        WHERE md.member = $db_ident
+                AND mdt.type = md.type
+        ORDER BY mdt.display_name
+}, {Slice => {}})}) {
+        $detail_count ++;
+        $member_details .= $q->Tr($q->td($detail->{display_name},":"),$q->td($detail->{value}));
+}
+$member_details = "" unless $detail_count;
+
+(my $bio_info = $q->escapeHTML($row->{bio_info})) =~ s/\n/<BR>/go;
+my $pgp_info = $row->{pgpkey_id}
+	? $q->a({-href=>"/site/emit_pgp.html?member=$row->{ident}"},
+		$row->{pgpkey_id})
+	: '<I>unknown</I>';
+my $image_src = "data:image/png;base64,";
+if (defined $row->{image}) {
+	$image_src .= $row->{image};
+} else {
+	my $image_buffer = "";
+	my $image = undef;
+	open($image, "<${common::sitedir}/default_face.png");
+	while (read($image, my $buffer, 4096)) {
+		$image_buffer .= $buffer;
+	}
+	close($image);
+	$image_src .= MIME::Base64::encode_base64($image_buffer,undef);
+}
+
+print $q->start_table({-border=>0, -cellspacing=>5, -cellpadding=>5}),
+	$q->Tr({-align=>'LEFT', -valign=>'TOP'}, [
+		$q->td(['Member ID:', $row->{ident}]) .
+		    $q->td({-rowspan=>8}, $q->img({-alt => 'portrait',
+			-src => $image_src,
+			-width => 128})),
+		$q->td(['Email addr:', $q->code($row->{email})]),
+		$q->td(['Full name:', $q->escapeHTML($row->{descr})]),
+		$q->td(['Affiliation:', $row->{affiliation}]),
+		$q->td(['PGP Key:', $pgp_info]),
+		$q->td(['Entered:', $row->{entered}.' UTC']),
+		$q->td(['Last Activity:', $row->{activity}.' UTC']),
+		$q->td(['Inactive for:', $row->{inactivity}]),
+		$q->td(['UUID:', $q->code($row->{uuid})]),
+		$q->td(['Status:', $q->em($row->{state} .
+			($row->{furlough} ? ' (furlough)' : '')),
+			$approve_button]),
+		$q->td(['Timezone info:', $q->escapeHTML($row->{tz_info})]),
+		$q->td('SMS info:') . $q->td({-colspan=>2},
+			$q->code($q->escapeHTML($row->{sms_info}))),
+		$q->td('I.M. info:') . $q->td({-colspan=>2},
+			$q->code($q->escapeHTML($row->{im_info}))),
+		$q->td('Phone info:') . $q->td({-colspan=>2},
+			$q->code($q->escapeHTML($row->{tel_info}))),
+		$q->td('Postal info:') . $q->td({-colspan=>2},
+			$q->escapeHTML($row->{post_info})),
+		$q->td('Home Airport:') . $q->td({-colspan=>2},
+			$q->escapeHTML($row->{airport} || '')),
+		$q->td('Biography:') . $q->td({-colspan=>2}, $bio_info),
+		$languages,
+		$member_details
+	]), $q->end_table;
+
+my $h;
+
+$form_id = &common::new_form_id();
+$Mech->{sess}->param('form_id', $form_id);
+$Mech->{sess}->flush();
+
+$h = $q->h5('Has vouched For:') .
+	$q->start_table({-border=>0, -cellspacing=>5, -cellpadding=>5});
+foreach my $vouch (@{$dbh->selectall_arrayref(qq{
+	SELECT mv.vouchee, mv.comment,
+		DATE_TRUNC('seconds', mv.entered) AS entered,
+		m.affiliation, m.ident, mt.state
+	  FROM member_vouch mv
+	  JOIN member m ON (m.ident = mv.vouchee)
+	  JOIN member_trustgroup mt ON
+		ROW(m.ident, mv.trustgroup) = ROW(mt.member, mt.trustgroup)
+	 WHERE ROW(mv.vouchor, mv.trustgroup) = ROW($db_ident, $tg->{db_ident})
+	   AND mv.positive
+	ORDER BY mv.entered DESC
+}, {Slice => {}})}) {
+	my $editing_buttons = ($ident eq $Site->{member} && $submit ne 'Edit')?
+		$q->start_form(-action => '#'.$vouch->{ident}) .
+			$q->hidden({-override => 1}, 'form_id', $form_id) .
+			$q->submit('submit', 'Delete') .
+			$q->submit('submit', 'Edit') .
+			$q->hidden('vouchee', $vouch->{vouchee}) .
+			$q->hidden('vouchor', $Site->{member}) .
+			$q->end_form :
+		'';
+	my $descr = sprintf "%s (%s)",
+		$q->escapeHTML($vouch->{ident}),
+		$q->escapeHTML($vouch->{affiliation});
+	my $vouch_comment = ($ident eq $Site->{member} &&
+				$submit eq 'Edit' &&
+				$vouchee eq $vouch->{vouchee}) ?
+		$q->start_form .
+			$q->hidden({-override => 1}, 'form_id', $form_id) .
+			$q->textarea(-name => 'comment',
+				-default => $vouch->{comment},
+				-override => 1,
+				-rows => 5,
+				-columns => 65) .
+			$q->submit('submit', 'Commit') .
+			$q->hidden('vouchee', $vouch->{vouchee}) .
+			$q->hidden('vouchor', $Site->{member}) .
+			$q->end_form :
+		$q->escapeHTML($vouch->{comment});
+	print $h, $q->Tr($q->td({-valign=>'TOP'}, [
+		sprintf("<A NAME=\"%s\">%s&nbsp;<EM>[%s]</EM><BR>%s %s</A>",
+			$vouch->{ident},
+			$q->a({-href=>$q->url()."?member=$vouch->{ident}"},
+				$descr),
+			$q->escapeHTML($vouch->{state}),
+			$vouch->{entered},
+			$editing_buttons),
+		$vouch_comment]));
+	$h = '';
+}
+print $q->end_table unless length $h;
+
+$h = $q->h5('Was vouched By:') .
+	$q->start_table({-border=>0, -cellspacing=>5, -cellpadding=>5});
+my $vouched_by_me = 0;
+foreach my $vouch (@{$dbh->selectall_arrayref(qq{
+	SELECT mv.vouchor, mv.comment,
+		DATE_TRUNC('seconds', mv.entered) AS entered,
+		m.affiliation, m.ident, mt.state
+	  FROM member_vouch mv
+	  JOIN member m ON (m.ident = mv.vouchor)
+	  JOIN member_trustgroup mt ON
+		ROW(m.ident, mv.trustgroup) = ROW(mt.member, mt.trustgroup)
+	 WHERE ROW(mv.vouchee, mv.trustgroup) = ROW($db_ident, $tg->{db_ident})
+	   AND mv.positive
+	ORDER BY mv.entered DESC
+}, {Slice => {}})}) {
+	my $editing_buttons = ($vouch->{vouchor} eq $Site->{member} &&
+				$submit ne 'Edit') ?
+		$q->start_form(-action => '#'.$vouch->{ident}) .
+			$q->hidden({-override => 1}, 'form_id', $form_id) .
+			$q->submit('submit', 'Delete') .
+			$q->submit('submit', 'Edit') .
+			$q->hidden('vouchor', $vouch->{vouchor}) .
+			$q->hidden('vouchee', $ident) .
+			$q->end_form :
+		'';
+	my $descr = sprintf "%s (%s)",
+		$q->escapeHTML($vouch->{ident}),
+		$q->escapeHTML($vouch->{affiliation});
+	my $vouch_comment = ($vouch->{vouchor} eq $Site->{member} &&
+				$submit eq 'Edit' &&
+				$vouchor eq $vouch->{vouchor}) ?
+		$q->start_form .
+			$q->hidden({-override => 1}, 'form_id', $form_id) .
+			$q->textarea(-name => 'comment',
+				-default => $vouch->{comment},
+				-override => 1,
+				-rows => 5,
+				-columns => 65) .
+			$q->submit('submit', 'Commit') .
+			$q->hidden('vouchor', $vouch->{vouchor}) .
+			$q->hidden('vouchee', $ident) .
+			$q->end_form :
+		$q->escapeHTML($vouch->{comment});
+	print $h, $q->Tr($q->td([
+		sprintf("<A NAME=\"%s\">%s&nbsp;<EM>[%s]</EM><BR>%s %s</A>",
+			$vouch->{ident},
+			$q->a({-href=>$q->url()."?member=$vouch->{ident}"},
+				$descr),
+			$q->escapeHTML($vouch->{state}),
+			$vouch->{entered},
+			$editing_buttons),
+		$vouch_comment]));
+	$h = '';
+	$vouched_by_me = 1 if $vouch->{vouchor} eq $Site->{member};
+}
+print $q->end_table unless length $h;
+
+if (!$vouched_by_me && $ident ne $Site->{member} &&
+	($Site->{admin} || !$tg->{vouch_adminonly})
+   )
+{
+	my @tglist = ();
+	foreach my $vouch (@{$dbh->selectall_arrayref(qq{
+		SELECT mv.trustgroup
+		  FROM member_vouch mv
+		 WHERE mv.vouchor = $Site->{db_member}
+		   AND mv.vouchee = $db_ident
+		   AND mv.trustgroup <> $tg->{db_ident}
+		   AND LENGTH(mv.comment) <> 0
+		   AND mv.positive
+		ORDER BY mv.entered DESC
+	}, {Slice => {}})}) {
+		push @tglist, $vouch->{trustgroup};
+	}
+	my $attestation = '';
+	my $message = '';
+	if (length($fetch) == 0 && $#tglist == 0) {
+		$fetch = $tglist[0];
+		$message = $q->em(q{Fetched default attestation from
+					trust group "}).$q->code($fetch).'"';
+	} elsif ($#tglist > 0) {
+		$message = $q->em(q{Fetch attestation from
+					another trust group: }) .
+				join ' ', map { $q->submit('fetch', $_) }
+					@tglist;
+	}
+	if (length $fetch) {
+		my $db_fetch = $dbh->quote($fetch);
+		($attestation) = $dbh->selectrow_array(qq{
+			SELECT mv.comment
+			  FROM member_vouch mv
+			 WHERE mv.vouchor = $Site->{db_member}
+			   AND mv.vouchee = $db_ident
+			   AND mv.trustgroup = $db_fetch
+			   AND mv.positive
+		});
+	}
+
+	print $q->h5('To vouch for this member:'),
+		$q->start_form,
+		$q->hidden({-override => 1}, 'form_id', $form_id), 
+		$q->table({-border => 0},
+			$q->Tr({-align=>'LEFT', -valign=>'MIDDLE'}, [
+				$q->td([q{}, $message]),
+				$q->td('Attestation:') .
+					$q->td($q->textarea(
+						-name => 'attestation',
+						-rows => 5,
+						-default => $attestation,
+						-columns => 65)),
+			$q->td({-align=>'CENTER'},
+				'<P><EM>(must<BR>check<BR>all<BR>boxes)</EM></P>') .
+				$q->td($q->checkbox_group(
+					-name => 'attestations',
+					-values => [keys %$att],
+					-default => [ ],
+					-columns => 1,
+					-labels => $att))
+		])),
+		$q->submit('submit', 'Vouch'),
+		$q->end_form;
+}
+
+print $postscript;
+</%perl>
+
+<%shared>
+my $q = undef;
+my $dbh = undef;
+my $tg = undef;
+my $att = {};
+</%shared>
+
+<%init>
+$q = $Mech->{cgi};
+$dbh = $Site->{dbh};
+$tg = $Site->{tg};
+
+foreach my $row (@{$dbh->selectall_arrayref(qq{
+	SELECT a.ident, a.descr
+	  FROM attestations a
+	 WHERE trustgroup = $tg->{db_ident}
+}, {Slice => {}})}) {
+	$att->{$row->{ident}} = $row->{descr};
+}
+</%init>

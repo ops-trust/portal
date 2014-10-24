@@ -1,0 +1,19 @@
+-- Starting Version 4
+BEGIN;
+
+ALTER TABLE member_email ADD verify_token TEXT;
+
+ALTER TABLE member ADD recover_email TEXT
+CHECK (email_ok(recover_email));
+ALTER TABLE member ADD FOREIGN KEY (ident, recover_email)
+REFERENCES member_email (member, email)
+ON UPDATE CASCADE;-- Note: no delete-cascade here
+
+-- Set the db version properly.
+--Update Version. 
+UPDATE schema_metadata 
+   SET value = 6 
+ WHERE value = 5
+   AND key = 'portal_schema_version';
+COMMIT;
+

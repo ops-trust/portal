@@ -1,0 +1,29 @@
+<%perl>
+my $username = undef;
+$username = $Mech->{sess}->param('member')
+	unless $Mech->{sess}->is_empty();
+if (defined $username && length $username) {
+	$m->comp('/site/sitehandler.mas:logout');
+}
+print qq{<P>You should now be redirected to
+	<A HREF="/">the main page</A>.</P>};
+$r->header_out('Refresh' => '0; url="/"');
+</%perl>
+
+<%method is_logout>
+# this does nothing, it's here to tell autohandler not to say 'expired'
+# if the user is in the process of logging out.
+</%method>
+
+<%method is_public>
+# this does nothing, it's here to tell autohandler that we can be called
+# even when we're not logged in.
+</%method>
+
+<%method tg_not_needed>
+# tells sitehandler.mas:request_ok that we don't need a trustgroup here
+</%method>
+
+<%method vetting_not_needed>
+# tells sitehandler.mas:request_ok that we don't need vetting here
+</%method>

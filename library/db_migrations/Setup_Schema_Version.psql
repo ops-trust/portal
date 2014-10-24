@@ -1,0 +1,10 @@
+--Schema Version 0
+BEGIN;
+
+CREATE TABLE schema_version (
+   current_version  INT            NOT NULL DEFAULT 0
+);
+
+GRANT ALL ON schema_version TO sysadmin;
+INSERT into schema_version (current_version) VALUES (1);
+COMMIT;

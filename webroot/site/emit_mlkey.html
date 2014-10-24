@@ -1,0 +1,49 @@
+<%args>
+$lhs => ''
+</%args>
+
+<%perl>
+$m->clear_buffer();
+$r->content_type('application/pgp-keys');
+$r->header_out('Cache-Control' => 'no-cache');
+$r->err_headers_out->add(
+	'Content-Disposition' => 'inline; filename="pgpkeys.asc"'
+);
+$m->current_comp->call_method('do', lhs => $lhs);
+$m->abort();
+</%perl>
+
+<%method do>
+<%args>
+$lhs => ''
+</%args>
+<%perl>
+my $q = $Mech->{cgi};
+my $dbh = $Site->{dbh};
+my $tg = $Site->{tg};
+my $db_tg = $tg->{db_ident};
+my $db_lhs = $dbh->quote($lhs);
+my $db_and = (length $lhs)
+	? "AND ROW(ml.lhs, ml.trustgroup) = ROW($db_lhs, $db_tg)"
+	: '';
+#print STDERR "db_and='$db_and'\n";
+foreach my $row (@{$dbh->selectall_arrayref(qq{
+	SELECT ml.lhs, ml.trustgroup, ml.pubkey
+	  FROM mailinglist ml
+	 WHERE ml.trustgroup IN (
+		SELECT trustgroup
+		  FROM member_trustgroup
+		 WHERE member = $Site->{db_member}
+		)
+	       $db_and
+}, {Slice => {}})}) {
+	print $row->{pubkey};
+}
+</%perl>
+</%method>
+
+<%shared>
+</%shared>
+
+<%init>
+</%init>

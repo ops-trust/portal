@@ -1,0 +1,50 @@
+-- Starting Version 3
+-- Ticket 455 Correct some schema nits. 
+BEGIN;
+
+--Change the data type to TEXT CHECK(LENGTH(iso_639_1) for iso_639_1
+
+ALTER TABLE member_language_skill DROP CONSTRAINT member_language_skill_language_fkey;
+ALTER TABLE languages RENAME iso_639_1 TO iso_639_1_tmp;
+ALTER TABLE languages ADD iso_639_1 TEXT CHECK(LENGTH(iso_639_1) = 2) UNIQUE;
+UPDATE languages SET iso_639_1 = iso_639_1_tmp;
+ALTER TABLE languages ALTER COLUMN iso_639_1 SET NOT NULL;
+ALTER TABLE languages DROP COLUMN iso_639_1_tmp;
+ALTER TABLE member_language_skill ADD CONSTRAINT member_language_skill_language_fkey
+FOREIGN KEY (language) REFERENCES languages(iso_639_1)
+ON UPDATE CASCADE
+ON DELETE CASCADE;
+
+-- It's not referenced anywhere but re-instantiate anyway incase that changes the name.
+
+ALTER TABLE member_language_skill RENAME TO member_language_skill_old;
+
+CREATE TABLE member_language_skill (
+member TEXT NOT NULL REFERENCES member(ident)
+   ON UPDATE CASCADE
+   ON DELETE CASCADE,
+language TEXT NOT NULL REFERENCES languages(iso_639_1)
+   ON UPDATE CASCADE
+   ON DELETE CASCADE,
+skill TEXT NOT NULL REFERENCES language_skill(skill)
+   ON UPDATE CASCADE
+   ON DELETE CASCADE,
+entered  TIMESTAMP NOT NULL DEFAULT NOW()::TIMESTAMP,
+   UNIQUE(member,language)
+);
+
+GRANT ALL ON TABLE member_language_skill TO sysadmin, www, "www-data";
+
+INSERT INTO member_language_skill (member,language,skill,entered) 
+  SELECT member,language,skill,entered FROM member_language_skill_old;
+
+DROP TABLE member_language_skill_old;
+
+--Update Version. 
+UPDATE schema_metadata 
+   SET value = 4 
+ WHERE value = 3
+   AND key = 'portal_schema_version';
+
+COMMIT; 
+

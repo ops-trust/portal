@@ -1,0 +1,114 @@
+<%args>
+$old => ''
+$new1 => ''
+$new2 => ''
+$submit => ''
+$form_id => ''
+</%args>
+
+<H3>Change Password</H3>
+<%perl>
+$q->delete_all();
+SUBMITTED: while ($submit eq 'Do') {
+	local($_);
+
+#	$m->abort(403) unless $form_id eq $Mech->{sess}->param('form_id');
+
+	my $row = $Site->{dbh}->selectrow_hashref(qq{
+		SELECT password
+		  FROM member m
+		 WHERE m.ident = $Site->{db_member}
+		   AND m.password IS NOT NULL
+	});
+	if (!defined $row) {
+		print $q->p("No login information on file?");
+		last SUBMITTED;
+	}
+	my $oldcrypt = $row->{password};
+	if (((!length($oldcrypt)) != (!length($old))) ||
+	    $oldcrypt ne crypt($old, $oldcrypt))
+	{
+		print $q->p("Old password mismatch.");
+		last SUBMITTED;
+	}
+	if (!length($new1) || !length($new2)) {
+		print $q->p("Must enter new password twice.");
+		last SUBMITTED;
+	}
+	if ($new1 ne $new2) {
+		print $q->p("New password mismatch.");
+		last SUBMITTED;
+	}
+	if ($new1 eq $old) {
+		print $q->p("Password must be new.");
+		last SUBMITTED;
+	}
+	my $db_newcrypt = $dbh->quote(&common::mkpw_portal($new1));
+	my $stmt = qq{
+		UPDATE member m SET
+			password = $db_newcrypt,
+			change_pw = FALSE
+		 WHERE m.ident = $Site->{db_member}
+	};
+	my $errstr = &common::audited_do($dbh, $Site->{member}, $stmt);
+	if (length $errstr) {
+		print $q->p("Failure: $errstr");
+	} else {
+		print $q->p("Password changed.");
+		&common::password_synch($Site->{member});
+		$Site->{change_pw} = 0;
+		return;
+	}
+	last SUBMITTED;
+}
+</%perl>
+<P>To change your password, you must enter your existing password (if any), and
+then enter your proposed new password twice, and then click the "Do"
+button below.</P>
+<%perl>
+$form_id = &common::new_form_id();
+$Mech->{sess}->param('form_id', $form_id);
+$Mech->{sess}->flush();
+print $q->start_form, $q->hidden({-override => 1}, 'form_id', $form_id),
+	$q->table({-border => 0}, $q->Tr({-align=>'LEFT', -valign=>'MIDDLE'}, [
+		$q->td("Old password:") .
+			$q->td($q->password_field(-name => 'old',
+				-default => '',
+				-override => 1,
+				-size => 10,
+				-maxlength => 50)),
+		$q->td("New password:") .
+			$q->td($q->password_field(-name => 'new1',
+				-default => '',
+				-override => 1,
+				-size => 10,
+				-maxlength => 50)),
+		$q->td("Repeat new password:") .
+			$q->td($q->password_field(-name => 'new2',
+				-default => '',
+				-override => 1,
+				-size => 10,
+				-maxlength => 50))
+	])),
+	$q->submit('submit', 'Do'), $q->end_form;
+</%perl>
+<BR>
+<P><A HREF="/site/edit_second_factor.html">Manage Second-factor Authentication Tokens</A></P>
+
+<%shared>
+my $q = undef;
+my $dbh = undef;
+</%shared>
+
+<%init>
+$q = $Mech->{cgi};
+$dbh = $Site->{dbh};
+</%init>
+
+<%method tg_not_needed>
+# tells sitehandler.mas:request_ok that we don't need a trustgroup here
+</%method>
+
+<%method vetting_not_needed>
+# tells sitehandler.mas:request_ok that we don't need vetting here
+</%method>

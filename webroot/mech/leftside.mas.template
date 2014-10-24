@@ -1,0 +1,18 @@
+<%perl>
+if (defined $Mech->{sess}->param('~logged-in')) {
+	print $q->code($Mech->{sess}->param('member')),
+		qq{(<A HREF="/mech/logout.html">logout</A>)<BR>};
+	$m->comp('/site/leftside_private.mas');
+} else {
+	print qq{<A HREF=!authurl!><I>Login</I></A></BR>};
+	$m->comp('/site/leftside_public.mas');
+}
+</%perl>
+
+<%shared>
+my $q = undef;
+</%shared>
+
+<%init>
+$q = $Mech->{cgi};
+</%init>

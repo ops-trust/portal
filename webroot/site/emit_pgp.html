@@ -1,0 +1,66 @@
+<%args>
+$member => ''
+</%args>
+
+<%perl>
+$m->clear_buffer();
+$r->content_type('application/pgp-keys');
+$r->header_out('Cache-Control' => 'no-cache');
+my $db_and = '';
+my $filename = 'pgpkeys.asc';
+if (length $member) {
+	my $db_member = $dbh->quote($member);
+	$db_and = qq{AND (m.ident = $db_member)};
+	$filename = "$member.asc";
+}
+$r->err_headers_out->add(
+	'Content-Disposition' => qq{inline; filename="$filename"}
+);
+
+foreach my $row (@{$dbh->selectall_arrayref(qq{
+	SELECT DISTINCT m.uuid AS uuid, mt.email AS email
+	  FROM member_trustgroup mt
+	  JOIN member m ON (mt.member = m.ident)
+	  JOIN member_email me ON ROW(me.member, me.email) =
+		ROW(mt.member, mt.email)
+	 WHERE mt.trustgroup IN (
+		SELECT trustgroup
+		  FROM member_trustgroup
+		 WHERE member = $Site->{db_member}
+		)
+	   AND me.pgpkey_id IS NOT NULL
+	   $db_and
+}, {Slice => {}})}) {
+	my $ring = sprintf '%s/%s.gpg', &common::gpg_key_path($row->{uuid}), $row->{uuid};
+	my $secring = sprintf '%s/%s.secring', &common::gpg_key_path($row->{uuid}), $row->{uuid};
+	&common::gpg_key_present($dbh, $row->{uuid});
+	next unless -r $ring;
+	my $my_gpgcmd = join(' ',
+		&common::gpgcmd_user($row->{uuid}), 
+		"--primary-keyring $ring",
+		"--secret-keyring $secring",
+		'--armor', '--export', $row->{email});
+	if (!open(IN, "${my_gpgcmd} |")) {
+		print STDERR "${my_gpgcmd}: $!";
+		return;
+	}
+	while (read(IN, my $buffer, 4096)) {
+		print $buffer;
+	}
+	close(IN);
+}
+$m->comp('/site/emit_mlkey.html:do') unless length $member;
+$m->abort();
+</%perl>
+
+<%shared>
+my $q = undef;
+my $dbh = undef;
+my $tg = undef;
+</%shared>
+
+<%init>
+$q = $Mech->{cgi};
+$dbh = $Site->{dbh};
+$tg = $Site->{tg};
+</%init>

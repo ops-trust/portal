@@ -1,0 +1,283 @@
+<%args>
+$submit => ''
+$type => ''
+$HELPFUL_NAME => ''
+$DEVICE_NAME => ''
+$form_id => ''
+$token_uuid => ''
+$code => ''
+</%args>
+
+<H3>Edit Second Factor Tokens</H3>
+<%perl>
+use Digest::SHA;
+my $postscript = '';
+my @stmts;
+if ($submit eq 'Disable Token' or $submit eq 'Enable Token') {
+	my $uuid = $dbh->quote($token_uuid);
+	my $detail = $dbh->selectrow_hashref(qq{
+		SELECT sf.key,sf.counter
+		FROM second_factors sf
+		WHERE sf.uuid = $uuid
+	});
+	use Authen::OATH;
+	my $oath = Authen::OATH->new();
+	my $otp;
+	my $add_to_query = '';
+	if ($type eq 'TOTP'){
+		$otp = $oath->totp( $detail->{'key'} );
+	} elsif ($type eq 'HOTP'){
+		$otp = $oath->hotp( $detail->{'key'}, $detail->{'counter'} );
+		$add_to_query = ", COUNTER = COUNTER + 1";
+	} else { $postscript .= $q->hr() . $q->p("Unknown type: $type.");}
+	my $was = 't';
+	my $to_be = 'f';
+	if ($submit eq 'Enable Token'){
+		$was = 'f';
+		$to_be = 't';
+	}
+	if($otp eq $code){
+		push @stmts, "UPDATE second_factors
+			SET active = '$to_be'
+			$add_to_query
+			WHERE member = $Site->{db_member}
+				AND active = '$was'
+				AND uuid = $uuid";
+		$postscript .= $q->hr() . $q->p("Token State changed.");
+	} else {
+		$code = substr($code, 0,3);
+		$otp = substr($otp, 0,3);
+		$postscript .= $q->hr() . $q->p("Invalid Token Code. ".$otp."*** - ".$code."***");
+	}
+} elsif ($submit eq 'Delete Token'){
+	my $uuid = $dbh->quote($token_uuid);
+	push @stmts, "DELETE FROM second_factors
+		WHERE member = $Site->{db_member}
+			AND (active = 'f' or type = 'SOTP')
+			AND uuid = $uuid";
+} elsif ($submit eq 'Create Token'){
+	print $q->start_table({border => 0});
+	my $helpful_name = $dbh->quote($HELPFUL_NAME);
+	my $device_name = $dbh->quote($DEVICE_NAME);
+	if ($type eq 'TOTP' or $type eq 'HOTP'){
+		use MIME::Base32 qw( RFC );
+		use HTML::Barcode::QRCode;
+		#Generate Key. 
+		my $key = substr &common::rand_str().&common::rand_str(),1,10;
+		my $encoded = MIME::Base32::encode($key);
+		my $key_hex = join(" ",map sprintf("%X",ord($_)), split("",$key));
+		#Create URL: 
+		my $url_type = lc($type);
+		my $db_type = $dbh->quote($type);
+		my $url = "otpauth://$url_type/".$HELPFUL_NAME."?secret=$encoded";
+		#Generate QR
+		my $qrcode = HTML::Barcode::QRCode->new(text => $url);
+		print $q->start_table({border => 0, class => "hbc"});
+		print $q->Tr(
+			$q->th("Device:").
+			$q->td({colspan => 2},"$DEVICE_NAME")
+		);
+		print $q->Tr(
+			$q->th("Account Name:").
+			$q->td({colspan => 2},"$HELPFUL_NAME")
+		);
+		print $q->Tr(
+			$q->td("&nbsp;"). $q->td("&nbsp;"). $q->td("&nbsp;")
+		);
+		print $q->Tr(
+			$q->th("QR Code:").
+			$q->td($qrcode->render_barcode).
+			$q->td("&nbsp;")
+		);
+		print $q->Tr(
+			$q->td("&nbsp;"). $q->td("&nbsp;"). $q->td("&nbsp;")
+		);
+		print $q->Tr(
+			$q->th("otpauth URL:").
+			$q->td({colspan => 2}, $url)
+		);
+		print $q->Tr(
+			$q->th("Secret Key (Base32):").
+			$q->td({colspan => 2}, $encoded)
+		);
+		print $q->Tr(
+			$q->th("Key (Hex):").
+			$q->td({colspan => 2}, $key_hex)
+		);
+
+		print $q->end_table;
+
+		#Add DB Record. 
+		my $uuid = &common::newmember_uuid();
+		push @stmts, "INSERT INTO second_factors (member,type,key,active,entered,uuid,descr) 
+			VALUES ($Site->{db_member},$db_type,'$key','f',now(),'$uuid',$device_name)";
+	} elsif ($type eq 'SOTP'){
+		my $count = 5;
+		print $q->Tr($q->td({colspan => 2},"Generated $count new SOTP keys."));
+		while($count){
+			#TODO use Base58 to generate key,
+			my $key = &common::rand_str();
+			print $q->Tr($q->th("Key:"),$q->td($key));
+			my $hash = Digest::SHA::sha256_hex($key);
+			my $uuid = &common::newmember_uuid();
+			push @stmts, "INSERT INTO second_factors (member,type,key,active,entered,uuid,descr) 
+				VALUES ($Site->{db_member},'SOTP','$hash','t',now(),'$uuid',$device_name)";
+			$count--;
+		}
+		print $q->Tr($q->td({colspan => 2},"Record these codes now. Only hashes are stores in the database."));
+	}
+	print $q->end_table;
+}
+if (@stmts){
+	my $errstr = &common::audited_do($dbh, $Site->{member}, @stmts);
+	if (length $errstr) {
+		$postscript .= $q->hr() . $q->p("Failure: $errstr");
+	} else {
+		$postscript .= $q->hr() . $q->p('Profile has been updated.');
+	}
+}
+$q->delete_all();
+
+#
+# display
+#
+$form_id = &common::new_form_id();
+$Mech->{sess}->param('form_id', $form_id);
+$Mech->{sess}->flush();
+
+print $q->start_table({border => 0});
+print $q->Tr(
+	$q->th('Name'),
+	$q->th('Type'),
+	$q->th('Active'),
+	$q->th('Counter'),
+	$q->th('Created at'),
+	$q->th('Edit'),
+);
+my $row = 0;
+foreach my $detail (@{$dbh->selectall_arrayref(qq{
+	SELECT sf.descr,sf.type, sf.entered, sf.active, sf.counter, sf.uuid,sf.counter
+		FROM second_factors sf
+		WHERE sf.member = $Site->{db_member}
+},{Slice => {}})}){
+	my $active;
+	my $disable_button = "";
+	my $delete_button = "";
+	my $enable_button = "";
+	my $zebra_class = ($row %2) ? "a" : "b";
+	if ($detail->{'active'} == 1){
+		$active = 'true';
+		if ($detail->{'type'} eq "SOTP"){
+			$delete_button = $q->start_form(-action => '#'.$detail->{'uuid'}) .
+				$q->hidden({-override => 1}, 'form_id', $form_id) .
+				$q->submit('submit', 'Delete Token') .
+				$q->hidden('member', $Site->{db_member}) .
+				$q->hidden('token_uuid', $detail->{'uuid'}) .
+				$q->end_form ;
+		} else {
+			$disable_button = $q->start_form(-action => '#'.$detail->{'uuid'}) .
+				$q->hidden({-override => 1}, 'form_id', $form_id) .
+				$q->hidden('type', $detail->{'type'}) .
+				"Code ".$q->textfield(-name => 'code',
+					-override => 1,
+					-size => 25,
+					-maxlength => 100) .
+				$q->submit('submit', 'Disable Token') .
+				$q->hidden('member', $Site->{db_member}) .
+				$q->hidden('token_uuid', $detail->{'uuid'}) .
+				$q->end_form ;
+		}
+	} else {
+		$active = 'false';
+		$delete_button = $q->start_form(-action => '#'.$detail->{'uuid'}) .
+			$q->hidden({-override => 1}, 'form_id', $form_id) .
+			$q->submit('submit', 'Delete Token') .
+			$q->hidden('member', $Site->{db_member}) .
+			$q->hidden('token_uuid', $detail->{'uuid'}) .
+			$q->end_form ;
+		$enable_button = $q->start_form(-action => '#'.$detail->{'uuid'}) .
+			$q->hidden({-override => 1}, 'form_id', $form_id) .
+			$q->hidden( 'type', $detail->{'type'}) .
+			"Code ".$q->textfield(-name => 'code',
+				-override => 1,
+				-size => 25,
+				-autocomplete => 'off',
+				-maxlength => 100) .
+			$q->submit('submit', 'Enable Token') .
+			$q->hidden('member', $Site->{db_member}) .
+			$q->hidden('token_uuid', $detail->{'uuid'}) .
+			$q->end_form ;
+	}
+	print $q->Tr(
+		{-class => "$zebra_class"},
+		$q->td($detail->{'descr'}),
+		$q->td($detail->{'type'}),
+		$q->td($active),
+		$q->td($detail->{'counter'}),
+		$q->td($detail->{'entered'}),
+		$q->td($enable_button,$delete_button,$disable_button)
+	);
+	$row++;
+}
+print $q->end_table;
+print $q->br();
+print $q->h3('Create a new Second-Factor Device:');
+print $q->start_multipart_form;
+print $q->start_table({border => 0});
+print $q->Tr(
+	$q->th("Name of Device:"),
+	$q->td( $q->textfield(-name => 'DEVICE_NAME',
+		-override => 1,
+		-size => 25,
+		-maxlength => 100).
+		"<I>(will identify this device on this portal.)</I>")
+);
+print $q->Tr(
+	$q->th("Name on Device:"),
+	$q->td( $q->textfield(-name => 'HELPFUL_NAME',
+		-default => $common::domain,
+		-override => 1,
+		-size => 25,
+		-maxlength => 100).
+		"<I>(will identify service on the device.)</I>")
+);
+my @types = &common::list_second_factor_types($Site->{dbh});
+print $q->Tr(
+	$q->th("Type:"),
+	$q->td($q->popup_menu(-name => 'type',
+		-values =>  $types[0],
+		-labels =>  $types[1],
+		-override => 1))
+);
+
+print $q->Tr(
+	$q->td($q->submit('submit', 'Create Token')),
+);
+print $q->end_table;
+print $postscript;
+
+</%perl>
+
+<%shared>
+my $q = undef;
+my $dbh = undef;
+my $tg = undef;
+my $keyring = undef;
+my $my_gpgcmd = undef;
+</%shared>
+
+<%init>
+$q = $Mech->{cgi};
+$dbh = $Site->{dbh};
+$tg = $Site->{tg};
+$keyring = sprintf '%s/%s', $common::pgpkeys, $Site->{uuid};
+$my_gpgcmd = &common::gpgcmd_user($Site->{uuid});
+</%init>
+
+<%method vetting_not_needed>
+# tells sitehandler.mas:request_ok that we don't need vetting here
+</%method>
+
+<%method tg_not_needed>
+# tells sitehandler.mas:request_ok that we don't need a trustgroup here
+</%method>

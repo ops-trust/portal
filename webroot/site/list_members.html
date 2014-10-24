@@ -1,0 +1,202 @@
+<%args>
+$select => ''
+$search => ''
+</%args>
+
+<H3>Members</H3>
+
+<%perl>
+# output search form
+print $q->start_form(-action=>$q->url()),
+	$q->hidden({-override=>1}, 'select', ''),
+	$q->textfield(-name=>'search', -override=>1, -default=>$search,
+			-size=>65, -maxlength=>100),
+	'&nbsp;', $q->submit('submit', 'Search'), $q->end_form, $q->p;
+
+# output members by state-category, possibly limited by $search and $select
+my $n = 0;
+
+# Protect lamely against lame input (search for everyone: *)
+
+$search =~ s/(\W)/\\$1/g;
+
+foreach my $state (qw[nominated vetted approved active
+		      soonidle idle inactive failed all])
+{
+	next unless $by_state{$state}->{count} > 0 || $state eq 'all';
+	my $selector = '';
+	$selector = "?select=$state" if $state ne $select;
+	print $q->h5($q->a({-href=>$q->url().$selector},
+			"[$state]: $by_state{$state}->{count}"));
+	print $q->start_ul({type => 'circle'});
+	foreach my $ident (sort { $members->{$a}->{sortdescr} cmp
+				  $members->{$b}->{sortdescr} }
+				keys %{$by_state{$state}->{ident}})
+	{
+		my $member = $members->{$ident};
+		if ($select eq $state ||
+		    $select eq 'all' ||
+		    (length($search) != 0 &&
+		     ($ident =~ /$search/si ||
+		      $member->{email} =~ /$search/si ||
+		      $member->{descr} =~ /$search/si ||
+		      $member->{affiliation} =~ /$search/si ||
+		      $member->{details} =~ /$search/si ||
+		      $member->{bio_info} =~ /$search/si)))
+		{
+			my @notes = @{$by_state{$state}->{ident}
+					->{$ident}->{notes}};
+			my $notestr = ($#notes == -1) ? '' :
+				$q->em(sprintf('&nbsp;&nbsp;(%s)',
+					join(', ', @notes)));
+			my $show_member = '/site/show_member.html' .
+				"?member=$ident";
+			my $render = sprintf '%s &nbsp; %s &nbsp; (%s) '.
+					'(%s%d &harr; %d%s)%s%s%s%s%s',
+				$q->escapeHTML($member->{descr}),
+				$q->a({-href=>$show_member},
+					$q->code($q->escapeHTML($ident))),
+				$q->escapeHTML($member->{affiliation}),
+				($member->{by_me} ? '&diams;' : ''),
+				$member->{for} + 0,
+				$member->{by} + 0,
+				($member->{for_me} ? '&diams;' : ''),
+				($member->{admin} ? '&Omega;' : ''),
+				($member->{has_face} ? ' &alefsym;' : '',
+				$member->{haspgp} ? ' &psi;' : '',
+				$member->{never} ? ' &Oslash;' : '',
+				$notestr);
+			print $q->li($render);
+			$n++;
+		}
+	}
+	print $q->end_ul;
+}
+if ($n != 0) {
+	print $q->hr({-align => 'LEFT', -width => '15%'}),
+		$q->p(qq{
+			&Omega; = administrator<BR>
+			&diams; = vouched by/for you<BR>
+			&alefsym; = has portrait<BR>
+			&psi; = has PGP key<BR>
+			&Oslash; = has never logged in
+		});
+}
+</%perl>
+
+<%shared>
+my $q = undef;
+my $dbh = undef;
+my $tg = undef;
+my $members = {};
+my %by_state = ();
+</%shared>
+
+<%init>
+$q = $Mech->{cgi};
+$dbh = $Site->{dbh};
+$tg = $Site->{tg};
+
+foreach my $row (@{$dbh->selectall_arrayref(qq{
+	SELECT	m.ident AS ident,
+		mt.email AS email,
+		m.descr AS descr,
+		m.affiliation AS affiliation,
+		m.bio_info AS bio_info,
+		m.image IS NOT NULL AS has_face,
+		me.pgpkey_id IS NOT NULL AS haspgp,
+		mt.admin AS admin,
+		mt.state AS state,
+		COALESCE(vouches.num, 0) AS vouches,
+		vouches.dir AS dir,
+		mt.entered::DATE AS entered,
+		(NOW()::DATE - mt.entered::DATE) AS age,
+		(m.activity = m.entered) AS never,
+		array_to_string(ARRAY(SELECT value FROM member_details WHERE
+				 member = m.ident),',') AS details
+	  FROM member m
+	JOIN member_trustgroup mt ON (ROW(mt.member, mt.trustgroup) =
+					ROW(m.ident, $tg->{db_ident}))
+	JOIN member_email me ON (ROW(me.member, me.email) =
+					ROW(mt.member, mt.email))
+	JOIN member_state ms ON (ms.ident = mt.state)
+	LEFT OUTER JOIN (
+		SELECT 'for' AS dir, mv.vouchee AS member, COUNT(*) AS num
+		  FROM member_vouch mv
+		 WHERE mv.trustgroup = $tg->{db_ident}
+		   AND mv.positive
+		GROUP BY mv.vouchee
+		UNION
+		SELECT 'by' AS dir, mv.vouchor AS member, COUNT(*) AS num
+		  FROM member_vouch mv
+		 WHERE mv.trustgroup = $tg->{db_ident}
+		   AND mv.positive
+		GROUP BY mv.vouchor
+		UNION
+		SELECT 'for_me' AS dir, mv.vouchor AS member, COUNT(*) AS num
+		  FROM member_vouch mv
+		 WHERE ROW(mv.trustgroup, mv.vouchee) =
+			ROW($tg->{db_ident}, $Site->{db_member})
+		   AND mv.positive
+		GROUP BY mv.vouchor
+		UNION
+		SELECT 'by_me' AS dir, mv.vouchee AS member, COUNT(*) AS num
+		  FROM member_vouch mv
+		 WHERE ROW(mv.trustgroup, mv.vouchor) =
+			ROW($tg->{db_ident}, $Site->{db_member})
+		   AND mv.positive
+		GROUP BY mv.vouchee
+	) AS vouches ON (m.ident = vouches.member)
+	WHERE mt.trustgroup = $tg->{db_ident}
+	  AND NOT ms.hidden
+}, {Slice => {}})}) {
+	my $ident = $row->{ident};
+	if (!defined $members->{$ident}) {
+		$_ = $row->{descr}; s/^\s+//o; s/\s+$//o;
+		my $sortdescr = /\s+([^\s]+)$/o ? "$1$`" : $_;
+		$sortdescr =~ tr/A-Z/a-z/;
+		my $descr = /\s+([^\s]+)$/o ? "$1, $`" : $_;
+		# note: "age" is not stored, we only use it for exclusion
+		$members->{$ident} = {
+			email => $row->{email},
+			descr => $descr,
+			affiliation => $row->{affiliation},
+			bio_info => $row->{bio_info},
+			admin => $row->{admin},
+			state => $row->{state},
+			sortdescr => $sortdescr,
+			haspgp => $row->{haspgp},
+			entered => $row->{entered},
+			details => $row->{details},
+			has_face => $row->{has_face},
+			for => undef,
+			by => undef,
+			for_me => undef,
+			by_me => undef,
+			never => $row->{never}
+		};
+	}
+	my $member = $members->{$ident};
+	my $dir = $row->{dir};
+	$member->{$dir} = $row->{vouches};
+}
+
+while (my ($ident, $member) = each %$members) {
+	my $pile = undef;
+	my @notes = ( );
+	if ($member->{for} < $tg->{min_invouch}) {
+		push(@notes, 'since '.$member->{entered});
+	} else {
+		if ($tg->{pgp_required} && !$member->{haspgp}) {
+			push(@notes, 'needs pgp key');
+		}
+		if ($member->{by} == 0 && $tg->{please_vouch}) {
+			push(@notes, 'needs to vouch');
+		}
+	}
+	my $state = $member->{state};
+	$by_state{$state}->{count}++;
+	$by_state{'all'}->{count}++;
+	$by_state{$state}->{ident}->{$ident}->{notes} = \@notes;
+}
+</%init>

@@ -1,0 +1,18 @@
+<%args>
+$next => undef
+</%args>
+
+<%perl>
+if (!defined $Site->{tg}) {
+	if (defined $next){
+		$m->redirect('/site/select_tg.html?next='.$next);
+	} else {
+		$m->redirect('/site/select_tg.html?last=1');
+	}
+} elsif ($Site->{change_pw}) {
+	$m->redirect('/site/chpw.html');
+} else {
+	# XXX probably we should have a dashboard for a home page
+	$m->redirect('/site/list_members.html');
+}
+</%perl>

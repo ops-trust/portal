@@ -1,0 +1,3 @@
+--Add field for per mailinglist e-mail footer. 
+ALTER TABLE mailinglist ADD email_footer TEXT;
+

@@ -1,0 +1,93 @@
+<%args>
+$select => ''
+</%args>
+
+<H3>Languages</H3>
+
+<%perl>
+my $margin = "5px";
+my $language_total = 0;
+my @skills = qw{ native expert intermediate basic };
+
+foreach my $row (@{$dbh->selectall_arrayref(qq{
+	SELECT l.name,l.iso_639_1,count(mls.member) 
+	FROM languages l, member_language_skill mls
+	JOIN member_trustgroup mt ON (ROW(mt.member, mt.trustgroup) =
+                                        ROW(mls.member, $tg->{db_ident}))
+	JOIN member_state ms ON (ms.ident = mt.state)
+	WHERE mls.language = l.iso_639_1 
+        	AND NOT ms.hidden
+		AND NOT ms.blocked 
+	GROUP BY l.name,l.iso_639_1 order by l.name})}) 
+{
+	my $language_name = $row->[0];
+	my $language_iso = $row->[1];
+	my $language_count = $row->[2];
+	$language_total += $language_count;
+
+        my $selector = '';
+        $selector = "?select=$language_iso" if $language_iso ne $select;
+        print $q->h5({style => "margin-top: $margin; margin-bottom: $margin;"},$q->a({-href=>$q->url().$selector},
+		"[$language_name - $language_iso ]: $language_count"));
+	if($select eq $language_iso || $select eq 'all')
+	{
+        	print $q->start_ul({type => 'circle',style => "margin-top: $margin; margin-bottom: $margin;"});
+		foreach my $skill (@skills)
+		{
+			if(defined $languages{$language_iso}{$skill})
+			{
+				print $q->li($q->h5({style => "margin-top: $margin; margin-bottom: $margin;"},$skill));
+				print $q->start_ul({type => 'circle'});
+				foreach my $row (@{$languages{$language_iso}{$skill}})
+				{
+					print $q->li($q->a({-href=>"/site/show_member.html" .
+						"?member=$row->{ident}"},
+						$q->code($row->{ident})) .
+						' ('.$q->escapeHTML(
+						$row->{affiliation}).')');
+				}
+        			print $q->end_ul;
+			}
+		}
+        	print $q->end_ul;
+	}
+}
+      print $q->h5({style => "margin-top: $margin; margin-bottom: $margin;"},$q->a({-href=>$q->url()."?select=all"},
+                       "[All ]: $language_total"));
+</%perl>
+
+<%shared>
+my $q = undef;
+my $dbh = undef;
+my $tg = undef;
+my %languages = {};
+</%shared>
+
+<%init>
+$q = $Mech->{cgi};
+$dbh = $Site->{dbh};
+$tg = $Site->{tg};
+
+foreach my $row (@{$dbh->selectall_arrayref(qq{
+        SELECT m.ident AS ident, m.affiliation AS affiliation,
+                mls.language AS language, mls.skill AS skill 
+          FROM member_language_skill mls, member m
+        JOIN member_trustgroup mt ON (ROW(mt.member, mt.trustgroup) =
+                                        ROW(m.ident, $tg->{db_ident}))
+        JOIN member_state ms ON (ms.ident = mt.state)
+        WHERE NOT ms.hidden 
+		AND NOT ms.blocked 
+		AND m.ident = mls.member
+        ORDER BY m.entered
+}, {Slice => {}})}) {
+        if (!defined $languages{$row->{'language'}}) 
+	{
+		$languages{$row->{'language'}} = {};
+		if(!defined $languages{$row->{'language'}})
+		{
+			$languages{$row->{'language'}}{$row->{'skill'}} = [];
+		}
+	}
+	push @{$languages{$row->{'language'}}{$row->{'skill'}}}, $row;
+}
+</%init>

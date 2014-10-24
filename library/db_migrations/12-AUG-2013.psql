@@ -1,0 +1,21 @@
+CREATE TABLE member_detail_types (
+  type  TEXT   NOT NULL	
+               UNIQUE
+);
+GRANT SELECT ON TABLE member_detail_types to www;
+GRANT ALL ON TABLE member_detail_types TO sysadmin;
+
+INSERT INTO member_detail_types VALUES ('callsign');
+
+CREATE TABLE member_details (
+  member  TEXT  NOT NULL REFERENCES member(ident)
+                   ON UPDATE CASCADE
+                   ON DELETE CASCADE,
+  type    TEXT  NOT NULL REFERENCES member_detail_types(type)
+                   ON UPDATE CASCADE
+                   ON DELETE CASCADE,
+  entered TIMESTAMP  NOT NULL DEFAULT NOW()::TIMESTAMP,
+  value   TEXT NOT NULL
+);      
+GRANT ALL ON TABLE member_details TO www,sysadmin;
+

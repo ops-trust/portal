@@ -1,0 +1,20 @@
+<%args>
+$next => undef
+</%args>
+% if (defined $Mech->{sess}->param('~logged-in')) {
+	<& /site/index_private.mas, next => "$next" &>
+% } else {
+	<& /site/index_public.mas &>
+% }
+
+<%method is_public>
+# no-op, here to allow display even while not logged in
+</%method>
+
+<%method tg_not_needed>
+# tells sitehandler.mas:request_ok that we don't need a trustgroup here
+</%method>
+
+<%method vetting_not_needed>
+# tells sitehandler.mas:request_ok that we don't need vetting here
+</%method>

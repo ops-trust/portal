@@ -1,0 +1,101 @@
+<%args>
+$iata => undef
+</%args>
+
+<%perl>
+
+print $q->h4("$n_airports Airports");
+
+# transpose
+my $nr = int(sqrt($n_airports));
+my $nc = int($n_airports / $nr) + 1;
+my @t = ( );
+my $i = 0;
+foreach my $airport (sort keys %$airports) {
+	my $c = int($i++ / $nr);
+	push @t, [] unless defined $t[$c];
+	push @{$t[$c]}, $airport;
+}
+
+# render
+print $q->start_table({-cellspacing=>5, -cellpadding=>5});
+for (my $r = 0; $r < $nr; $r++) {
+	print '<TR>';
+	for (my $c = 0; $c < $nc; $c++) {
+		print '<TD>';
+		my $airport = $t[$c]->[$r];
+		if (defined $airport) {
+			my $number = 1 + $#{$airports->{$airport}->{members}};
+			my $disp_ap = (length $airport)
+				? $q->code($airport)
+				: '&empty;';
+			print $q->a({-href=>$q->url()."?iata=$airport"},
+				$disp_ap)." ($number)";
+		}
+		print '</TD>';
+	}
+	print "</TR>\n";
+}
+print $q->end_table;
+
+if (defined $iata) {
+	print $q->hr;
+	if (!defined $airports->{$iata}) {
+		print $q->p('No such airport: '.$q->code($q->escapeHTML($iata)));
+	} else {
+		my $number = 1 + $#{$airports->{$iata}->{members}};
+		my $disp_iata = (length $iata)
+			? $q->code($q->escapeHTML($iata))
+			: $q->em('No airport specified');
+		print $q->h4("$disp_iata ($number)"), $q->start_ul;
+		foreach my $member (@{$airports->{$iata}->{members}}) {
+			print $q->li($q->a({-href=>"/site/show_member.html" .
+						"?member=$member->{ident}"},
+					$q->code($member->{ident})) .
+						' ('.$q->escapeHTML(
+						 $member->{affiliation}).')');
+		}
+		print $q->end_ul;
+	}
+}
+</%perl>
+
+<%shared>
+my $q = undef;
+my $dbh = undef;
+my $tg = undef;
+my $airports = { };
+my $n_airports = 0;
+</%shared>
+
+<%init>
+$q = $Mech->{cgi};
+$dbh = $Site->{dbh};
+$tg = $Site->{tg};
+
+foreach my $row (@{$dbh->selectall_arrayref(qq{
+	SELECT m.ident AS ident, m.affiliation AS affiliation,
+		m.airport AS airport
+	  FROM member m
+	JOIN member_trustgroup mt ON (ROW(mt.member, mt.trustgroup) =
+					ROW(m.ident, $tg->{db_ident}))
+	JOIN member_state ms ON (ms.ident = mt.state)
+	WHERE NOT ms.hidden
+	ORDER BY m.entered
+}, {Slice => {}})}) {
+	my $airport = $row->{airport};
+	if (defined $airport) {
+		$airport = $q->escapeHTML($airport);
+	} else {
+		$airport = '';
+	}
+	if (!defined $airports->{$airport}) {
+		$airports->{$airport} = { members => [ ] };
+		$n_airports++;
+	}
+	push @{$airports->{$airport}->{members}}, {
+		affiliation => $row->{affiliation},
+		ident => $row->{ident}
+	};
+}
+</%init>
