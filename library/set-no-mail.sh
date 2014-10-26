@@ -31,10 +31,11 @@ fi
 /usr/bin/psql -h ${DBHOST} ${DB} << EOF
 BEGIN;
 
-update member m 
-  join member_email me on m.ident = me.member
-   set m.no_email = true
- where me.email = '$1'
+UPDATE member m
+  SET no_email = true
+  FROM member_email me
+  WHERE m.ident = me.member
+  AND me.email = '$1';
 
 COMMIT;
 EOF
