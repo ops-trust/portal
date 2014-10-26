@@ -1,12 +1,17 @@
-Ops-Trust Platform - Portal
+# Ops-Trust Platform - Portal
 
+This is the code that runs [Ops-Trust](https://www.ops-trust.net).
+
+It is placed under the [Apache Version 2.0 License](http://www.apache.org/licenses/).
+
+## Installation Requirements
 The Ops-T Database permission architecture has the following invariants:
 
-* we use PostGreSQL 9.1 or later, which need not run on the same host w/ us;
-* our users and apps do not specify a username or password in PQconnect();
-* www (freebsd) and www-data (linux) and all sysadmins need to be in the ACL;
-* the "sysadmin" group has to have all the sysadmins in it as group members;
-* your pg_hba.conf file should permit the portal and mail hosts to connect.
+* we use PostGreSQL 9.1 or later, which need not run on the same host w/ us
+* our users and apps do not specify a username or password in PQconnect()
+* www (freebsd) and www-data (linux) and all sysadmins need to be in the ACL
+* the "sysadmin" group has to have all the sysadmins in it as group members
+* your pg_hba.conf file should permit the portal and mail hosts to connect
 * Software: Apache2, FastCGI, mod_perl
 
 Dev cycle is:
