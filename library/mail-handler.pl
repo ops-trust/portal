@@ -686,7 +686,7 @@ sub edit_header($$$) {
 
 	# if this sender does not want us using their domain name in
 	# From:, then edit the headers accordingly.  note that if this
-	# sender isn't a member (as some listss permit), we can't hide.
+	# sender isn't a member (as some lists permit), we can't hide.
 	if (defined $member && $member->{hide_email}) {
 		my $from = common::ExtractAddr($head->get('from'));
 		my @from = split /\@/, $from;
