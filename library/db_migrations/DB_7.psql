@@ -1,0 +1,39 @@
+-- Starting Version 7
+BEGIN;
+--GHI_6 Omnibus DB update #7
+
+--GHI_4 LockDown Member Name.
+ALTER TABLE member ADD ident_changed BOOLEAN NOT NULL DEFAULT false;
+--GHI_5 Sync passowrds and ssh keys for people accounts to the DB.
+ALTER TABLE member ADD ssh_key TEXT;
+
+--GHI_8 Replace UUID in second_factors table with SEQUENCE.
+ALTER TABLE second_factors RENAME TO second_factors_old;
+CREATE TABLE second_factors (
+		id         SERIAL,
+        member     TEXT  NOT NULL REFERENCES member(ident)
+                   ON UPDATE CASCADE
+                   ON DELETE CASCADE,
+        type       TEXT  NOT NULL REFERENCES second_factor_types(type)
+                   ON UPDATE CASCADE
+                   ON DELETE CASCADE,
+        entered    TIMESTAMP  NOT NULL DEFAULT NOW()::TIMESTAMP,
+        active     BOOLEAN NOT NULL DEFAULT false,
+        counter    INTEGER DEFAULT 0,
+        key        TEXT,
+		descr      TEXT
+);
+GRANT ALL ON TABLE second_factors TO www,sysadmin, "www-data";
+
+INSERT INTO second_factors (member,type,entered,active,counter,key,descr)
+  SELECT member,type,entered,active,counter,key,descr FROM second_factors_old;
+
+DROP TABLE second_factors_old;
+
+-- Set the db version properly.
+--Update Version.
+UPDATE schema_metadata
+   SET value = 8
+ WHERE value = 7
+   AND key = 'portal_schema_version';
+COMMIT;
