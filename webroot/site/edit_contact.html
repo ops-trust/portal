@@ -160,10 +160,20 @@ if ($submit eq 'Apply') {
 					 $dbh->quote($passwd_chat);
 		}
 	}
+	if($db_ident eq $Site->{db_member}) {
+		push @stmts, qq{
+			UPDATE member m
+			    SET
+			        ident = $db_ident,
+				ident_changed = true
+			  WHERE
+			        ident_changed = false AND
+				m.ident = $Site->{db_member};
+		}
+	}
 	push @stmts, qq{
 		UPDATE member m
 		   SET	
-			ident = $db_ident,
 			descr = $db_descr,
 			affiliation = $db_affiliation,
 			tz_info = $db_tz,
@@ -286,7 +296,8 @@ my $row = $Site->{dbh}->selectrow_hashref(qq{
 	SELECT m.ident, m.descr, m.affiliation, me.pgpkey_id,
 		m.tz_info, m.im_info, m.tel_info, m.sms_info,
 		m.post_info, m.bio_info, m.airport, m.no_email,
-		m.furlough, m.hide_email, mt.email, m.image
+		m.furlough, m.hide_email, mt.email, m.image,
+		m.ident_changed
 	  FROM member m
 	  JOIN member_trustgroup mt ON ROW(mt.member, mt.trustgroup) =
 		ROW(m.ident, $tg->{db_ident})
@@ -369,17 +380,22 @@ if (defined($row->{image})) {
         close($image);
         $image_src .= MIME::Base64::encode_base64($image_buffer,'');
 }
-
-print $q->start_multipart_form,
-	$q->hidden({-override => 1}, 'form_id', $form_id),
-	$q->table({-border => 0}, $q->Tr({-align=>'LEFT', -valign=>'MIDDLE'}, [
-		$q->td('Member ID:') .
-			$q->td({-colspan=>2},$q->textfield(-name => 'ident',
+my $ident_field = "";
+if($row->{ident_changed}) {
+	$ident_field = $q->td({-colspan=>2},$row->{ident});
+} else {
+	$ident_field = $q->td({-colspan=>2},$q->textfield(-name => 'ident',
 				-default => $row->{ident},
 				-override => 1,
 				-size => 65,
 				-maxlength => 100) .
-			'&nbsp;&nbsp;(<EM>e.g.,</EM> <CODE>johnsmith</CODE>)'),
+			'&nbsp;&nbsp;(<EM>e.g.,</EM> <CODE>johnsmith</CODE>)');
+}
+
+print $q->start_multipart_form,
+	$q->hidden({-override => 1}, 'form_id', $form_id),
+	$q->table({-border => 0}, $q->Tr({-align=>'LEFT', -valign=>'MIDDLE'}, [
+		$q->td('Member ID:') . $ident_field,
 		$q->td('Full name:') .
 			$q->td($q->textfield(-name => 'descr',
 				-default => $row->{descr},
