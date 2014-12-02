@@ -264,8 +264,7 @@ sub find_member($$$$) {
 	if ($from !~ /^(\w+\-)?${common::hostmaster}$/ &&
 	    $members_only &&
 	    $from ne $ml &&
-	    ((!defined $member) ||
-	     ((!$member->{haspgp}) && $tg->{pgp_required})))
+	    !defined $member)
 	{
 		puke "not a valid sender: $db_from";
 	}
