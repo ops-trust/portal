@@ -31,9 +31,11 @@ my $db_search = $dbh->quote($search);
 
 my $save_ident = '';
 foreach my $row (@{$dbh->selectall_arrayref(qq{
-	SELECT m.ident, m.descr, m.uuid, mt.email, mt.trustgroup, mt.state
+	SELECT m.ident, m.descr, m.uuid, mt.email, mt.trustgroup, mt.state,
+	       m.login_attempts, sf.type AS sft
 	  FROM member m
 	  JOIN member_trustgroup mt ON (mt.member = m.ident)
+	  JOIN second_factors sf ON (sf.member = m.ident)
 	 WHERE m.ident ~* $db_search
 	    OR m.descr ~* $db_search
 	    OR mt.email ~* $db_search
@@ -41,7 +43,8 @@ foreach my $row (@{$dbh->selectall_arrayref(qq{
 }, {Slice => {}} )}) {
 	if ($row->{ident} ne $save_ident) {
 		$save_ident = $row->{ident};
-		print "[$save_ident] '$row->{descr}' $row->{uuid}\n";
+		print "[$save_ident] '$row->{descr}' $row->{uuid} " .
+		      "LA: $row->{login_attempts} SF: $row->{sft}\n";
 	}
 	my $db_ident = $dbh->quote($save_ident);
 	my $db_trustgroup = $dbh->quote($row->{trustgroup});
