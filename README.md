@@ -4,6 +4,9 @@ This is the code that runs [Ops-Trust](https://www.ops-trust.net).
 
 It is placed under the [Apache Version 2.0 License](http://www.apache.org/licenses/).
 
+There is a short [installation text](INSTALL.md) which describes prerequisites.
+Proper packaging for both FreeBSD and Debian are following.
+
 ## Installation Requirements
 The Ops-T Database permission architecture has the following invariants:
 
