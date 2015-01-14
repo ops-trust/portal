@@ -17,8 +17,6 @@
 #   limitations under the License.
 #
 
-LOCKFILE=/tmp/portal-cronrun-day.sh
-
 PATH=/usr/local/bin:$PATH
 export PATH
 
@@ -27,7 +25,7 @@ cd !library! || exit 1
 . ./funcs.sh
 
 # Lock this crontab
-cron_lock
+cron_lock $(basename $0)
 
 # Clean up pgp data files (for keys of users, etc).
 ./fsck-pgpkeys

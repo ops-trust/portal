@@ -17,8 +17,6 @@
 #   limitations under the License.
 #
 
-LOCKFILE=/tmp/portal-cronrun-minute.sh
-
 PATH=/usr/local/bin:$PATH
 export PATH
 
@@ -27,28 +25,7 @@ cd !library! || exit 1
 . ./funcs.sh
 
 # Lock this crontab
-cron_lock
-
-# Avoid running more than one at a time
-if [ -x /usr/bin/lockfile-create ] ; then
-	lockfile-create $LOCKFILE
-	if [ $? -ne 0 ];
-	then
-		cat <<EOF
-
-Unable to run crontab-minute.sh because lockfile $LOCKFILE
-acquisition failed. This probably means that the previous instance
-is still running. Please check and correct if necessary.
-
-EOF
-		exit 1
-	fi
-
-	# Keep lockfile fresh
-	lockfile-touch $LOCKFILE &
-	LOCKTOUCHPID="$!"
-fi
-
+cron_lock $(basename $0)
 
 ./state-mon
 ./fsck-mlkeys

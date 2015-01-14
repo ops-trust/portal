@@ -17,21 +17,27 @@
 #   limitations under the License.
 #
 
-# Uses LOCKFILE, returns LOCKTOUCHPID
+# Stores details in LOCKFILE + LOCKTOUCHPID
 cron_lock()
 {
-	LOCKFILE=$1
+	LOCKNAME=$1
+	LOCKFILE=/tmp/portal-${LOCKNAME}.lock
 
 	# Avoid running more than one at a time
 	if [ -x /usr/bin/lockfile-create ] ; then
 		lockfile-create $LOCKFILE
 		if [ $? -ne 0 ];
 		then
-		cat <<EOF
+			DATE=$(date)
+			cat <<EOF
+Dear Admin,
 
-Unable to run crontab-minute.sh because lockfile $LOCKFILE
-acquisition failed. This probably means that the previous instance
-is still running. Please check and correct if necessary.
+At $(DATE) I was unable to run ${LOCKNAME} because lockfile
+ ${LOCKFILE}
+acquisition failed.
+
+This probably means that the previous cron entry is still
+running. Please check and correct if necessary.
 
 EOF
 			exit 1
