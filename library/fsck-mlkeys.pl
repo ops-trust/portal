@@ -21,7 +21,8 @@
 
 use strict;
 use warnings;
-use lib '!library!';
+use FindBin;
+use lib $FindBin::Bin;
 use common;
 use Fcntl qw(:flock LOCK_EX LOCK_NB);
 

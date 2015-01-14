@@ -17,10 +17,10 @@
 #   limitations under the License.
 #
 
-
 use strict;
 use warnings;
-use lib '!library!';
+use FindBin;
+use lib $FindBin::Bin;
 use common;
 
 $| = 1;

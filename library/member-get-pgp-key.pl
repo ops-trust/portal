@@ -19,7 +19,8 @@
 
 use strict;
 use warnings;
-use lib '/proj/ops-trust/library';
+use FindBin;
+use lib $FindBin::Bin;
 use common;
 
 $| = 1;

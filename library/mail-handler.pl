@@ -27,7 +27,8 @@ our $debug = $debug if defined $debug;
 
 use strict;
 use warnings;
-use lib '!library!';
+use FindBin;
+use lib $FindBin::Bin;
 use common;
 use Mail::SendEasy;
 use MIME::Parser;
