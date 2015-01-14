@@ -17,11 +17,21 @@
 #   limitations under the License.
 #
 
+LOCKFILE=/tmp/portal-cronrun-week.sh
+
 PATH=/usr/local/bin:$PATH
 export PATH
 
-cd !library!
+cd !library! || exit 1
+
+. ./funcs.sh
+
+# Lock this crontab
+cron_lock
 
 ./notify-idle
+
+# Unlock this crontab
+cron_unlock
 
 exit

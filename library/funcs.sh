@@ -1,5 +1,5 @@
-#!/bin/sh
-
+# Helpful Shell Functions
+#
 # This file is part of the Ops-T Portal.
 #
 #   Copyright 2014 Operations Security Administration, Inc.
@@ -17,23 +17,16 @@
 #   limitations under the License.
 #
 
-LOCKFILE=/tmp/portal-cronrun-minute.sh
+# Uses LOCKFILE, returns LOCKTOUCHPID
+cron_lock()
+{
+	LOCKFILE=$1
 
-PATH=/usr/local/bin:$PATH
-export PATH
-
-cd !library! || exit 1
-
-. ./funcs.sh
-
-# Lock this crontab
-cron_lock
-
-# Avoid running more than one at a time
-if [ -x /usr/bin/lockfile-create ] ; then
-	lockfile-create $LOCKFILE
-	if [ $? -ne 0 ];
-	then
+	# Avoid running more than one at a time
+	if [ -x /usr/bin/lockfile-create ] ; then
+		lockfile-create $LOCKFILE
+		if [ $? -ne 0 ];
+		then
 		cat <<EOF
 
 Unable to run crontab-minute.sh because lockfile $LOCKFILE
@@ -41,20 +34,24 @@ acquisition failed. This probably means that the previous instance
 is still running. Please check and correct if necessary.
 
 EOF
-		exit 1
+			exit 1
+		fi
+
+		# Keep lockfile fresh
+		lockfile-touch $LOCKFILE &
+		LOCKTOUCHPID="$!"
 	fi
+}
 
-	# Keep lockfile fresh
-	lockfile-touch $LOCKFILE &
-	LOCKTOUCHPID="$!"
-fi
+# Uses LOCKFILE and LOCKTOUCHPID
+cron_unlock()
+{
+	# Clean up lockfile
+	#
+	if [ -x /usr/bin/lockfile-create ];
+	then
+		kill $LOCKTOUCHPID
+		lockfile-remove $LOCKFILE
+	fi
+}
 
-
-./state-mon
-./fsck-mlkeys
-./dbck-password
-
-# Unlock this crontab
-cron_unlock
-
-exit
