@@ -31,8 +31,7 @@ cron_lock $(basename $0)
 ./fsck-pgpkeys
 
 # Run notification bits for each trustgroup.
-for trustgroup in $(psql -h !pghost! -p !pgport! -d !pgname! \
-          -A -t -c 'SELECT ident FROM trustgroup ORDER BY ident')
+for trustgroup in $(portal_query -A -t -c 'SELECT ident FROM trustgroup ORDER BY ident')
 do
 	./notify-unvetted $trustgroup
 	./report-unvetted $trustgroup

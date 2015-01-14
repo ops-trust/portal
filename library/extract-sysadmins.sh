@@ -17,6 +17,10 @@
 #   limitations under the License.
 #
 
+cd !library! || exit 1
+
+. ./funcs.sh
+
 #
 # Get all sysadmins into a table, created on the fly.
 # pgdump that into inserts for the destination/new database.
@@ -24,10 +28,9 @@
 
 wt="extract_sysadmin_$$"
 et="extract_member_email_$$"
-connargs="-h !pghost! -p !pgport!"
 
 # Create a working table for the members.
-psql -q $connargs -d !pgname!<< EOF 
+portal_query << EOF 
 	SELECT *
 	  INTO ${wt}
 	  FROM member
@@ -35,7 +38,7 @@ psql -q $connargs -d !pgname!<< EOF
 EOF
 
 # Create a working table for the member_emails
-psql -q $connargs -d !pgname! << EOF 
+portal_query << EOF 
 	SELECT me.member, me.email, me.verified
 	  INTO ${et}
 	  FROM member_email AS me, member AS m
@@ -43,16 +46,14 @@ psql -q $connargs -d !pgname! << EOF
 	   AND me.member = m.ident;
 EOF
 
-# pg_dump the member working table into stdout
-pg_dump -a --inserts --column-inserts $connargs -t ${wt} !pgname! | \
-	sed "s/${wt}/member/"
+# dump the member working table into stdout
+portal_dump -t ${wt} !pgname! | sed "s/${wt}/member/"
 
-# pg_dump the email working table into stdout
-pg_dump -a --inserts --column-inserts $connargs -t ${et} !pgname! | \
-	sed "s/${et}/member_email/"
+# dump the email working table into stdout
+portal_dump -t ${et} !pgname! | sed "s/${et}/member_email/"
 
 # Remove the temporary table from the original location.
-psql -q $connargs -d !pgname! << EOF
+portal_query << EOF
 	DROP TABLE ${wt};
 	DROP TABLE ${et};
 EOF

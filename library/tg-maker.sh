@@ -31,6 +31,8 @@
 
 cd !library! || exit 1
 
+. ./funcs.sh
+
 for v in tgname/s descr/s shortname/s min_invouch/n target_invouch/n \
         min_outvouch/n max_inactivity/i idle_guard/i pgp_required/b \
 	please_vouch/b vouch_adminonly/b nom_enabled/b can_time_out/b \

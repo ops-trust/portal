@@ -17,18 +17,21 @@
 #   limitations under the License.
 #
 
+cd !library! || exit 1
+
+. ./funcs.sh
+
 #
 # Disable mail delivery for an email destination.
 #
 # Args:
 #   email, an email that is in need of disabling.
-DB=!pgname!
-DBHOST=!pghost!
 if [ "X$1" = "X" ] ; then
   echo "$0 <emailaddress>"
   exit 255
 fi
-/usr/bin/psql -h ${DBHOST} ${DB} << EOF
+
+portal_query << EOF
 BEGIN;
 
 UPDATE member m
@@ -39,3 +42,4 @@ UPDATE member m
 
 COMMIT;
 EOF
+

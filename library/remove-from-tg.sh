@@ -21,12 +21,13 @@
 
 cd !library! || exit 1
 
+. ./funcs
+
 if [ "z$1" == "z" -o "z$2" == "z" ]; then
 	echo "Usage: $0 <email> <trustgroup>"
 	exit 1
 fi
 
-echo "DELETE FROM member_trustgroup WHERE trustgroup='$2' AND email='$1';" |
-	psql -h !pghost! -p !pgport! -d !pgname! 
+echo "DELETE FROM member_trustgroup WHERE trustgroup='$2' AND email='$1';" | portal_query
 
 exit

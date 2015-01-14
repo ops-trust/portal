@@ -61,3 +61,17 @@ cron_unlock()
 	fi
 }
 
+PORTAL_DB_HOST=!pghost!
+PORTAL_DB_PORT=!pgport!
+PORTAL_DB_NAME=!pgname!
+
+portal_query()
+{
+	psql -h ${PORTAL_DB_HOST} -p ${PORTAL_DB_PORT} -d ${PORTAL_DB_NAME}
+}
+
+portal_dump()
+{
+	pg_dump -a --inserts --column-inserts -h ${PORTAL_DB_HOST} -p ${PORTAL_DB_PORT} -d ${PORTAL_DB_NAME} "$@"
+}
+

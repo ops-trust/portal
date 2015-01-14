@@ -21,12 +21,13 @@
 
 cd !library! || exit 1
 
+. ./funcs.sh
+
 if [ "z$1" = "z" -o "z$2" = "z" ]; then
 	echo "Usage: $0 <old email> <new email>"
 	exit 1
 fi
 
-( echo "UPDATE member_email SET email='$2' WHERE email='$1';"
-) | psql -h !pghost! -p !pgport! -d !pgname!
+echo "UPDATE member_email SET email='$2' WHERE email='$1';" | portal_query
 
 exit
