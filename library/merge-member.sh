@@ -17,6 +17,9 @@
 #   limitations under the License.
 #
 
+cd $(dirname $0) || exit 1
+
+. ./funcs.sh
 
 tg=$1
 old=$2

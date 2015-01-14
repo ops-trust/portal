@@ -29,7 +29,7 @@
 #   psql -U sysadmin -h <dbhost> ops-trust
 #
 
-cd !library! || exit 1
+cd $(dirname $0) || exit 1
 
 . ./funcs.sh
 

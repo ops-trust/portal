@@ -17,6 +17,10 @@
 #   limitations under the License.
 #
 
+cd $(dirname $0) || exit 1
+
+. ./funcs.sh
+
 #
 # Rsync'ing over a git clone is bobo... fix the permissions and add missing
 # directories/links.

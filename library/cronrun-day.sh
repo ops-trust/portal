@@ -20,7 +20,7 @@
 PATH=/usr/local/bin:$PATH
 export PATH
 
-cd !library! || exit 1
+cd $(dirname $0) || exit 1
 
 . ./funcs.sh
 

@@ -17,7 +17,7 @@
 #   limitations under the License.
 #
 
-cd !library! || exit 1
+cd $(dirname $0) || exit 1
 
 . ./funcs.sh
 

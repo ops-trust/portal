@@ -19,7 +19,7 @@
 
 # $0 email tgname
 
-cd !library! || exit 1
+cd $(dirname $0) || exit 1
 
 . ./funcs
 
