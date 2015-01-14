@@ -17,9 +17,6 @@
 #   limitations under the License.
 #
 
-PATH=/usr/local/bin:$PATH
-export PATH
-
 cd $(dirname $0) || exit 1
 
 . ./funcs.sh

@@ -17,6 +17,10 @@
 #   limitations under the License.
 #
 
+# Force our path to contain /usr/local/bin, just in case
+PATH=/usr/local/bin:$PATH
+export PATH
+
 # Stores details in LOCKFILE + LOCKTOUCHPID
 cron_lock()
 {
