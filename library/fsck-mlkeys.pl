@@ -1,6 +1,5 @@
 #!/usr/bin/env perl
 
-# $Id: fsck-mlkeys.pl,v 1.5 2012/07/11 22:51:51 vixie Exp $
 # This file is part of the Ops-T Portal.
 #
 #   Copyright 2014 Operations Security Administration, Inc.
