@@ -21,6 +21,9 @@
 PATH=/usr/local/bin:$PATH
 export PATH
 
+# Always include our Portal configuration
+. ./portal.conf
+
 # Stores details in LOCKFILE + LOCKTOUCHPID
 cron_lock()
 {
@@ -64,10 +67,6 @@ cron_unlock()
 		lockfile-remove $LOCKFILE
 	fi
 }
-
-PORTAL_DB_HOST=!pghost!
-PORTAL_DB_PORT=!pgport!
-PORTAL_DB_NAME=!pgname!
 
 portal_query()
 {
