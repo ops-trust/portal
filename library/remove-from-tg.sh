@@ -23,7 +23,7 @@ cd $(dirname $0) || exit 1
 
 . ./funcs
 
-if [ "z$1" == "z" -o "z$2" == "z" ]; then
+if [ $# -lt 2 ]; then
 	echo "Usage: $0 <email> <trustgroup>"
 	exit 1
 fi
