@@ -23,7 +23,7 @@ PERL_SCRIPTS= approve chpw dbck-password findmember \
 
 SHELL_SCRIPTS= cronrun-day cronrun-minute cronrun-week \
 	extract-sysadmins fix-install merge-member remove-from-tg \
-	rename-email set-no-mail tg-maker
+	rename-email set-no-mail tg-maker funcs.sh
 
 SCRIPTS= ${PERL_SCRIPTS} ${SHELL_SCRIPTS}
 
