@@ -1231,4 +1231,22 @@ notify a potential member of their nomination is: if & after it succeeds.
 	return $ret;
 }
 
+sub ltrim($) {
+	my $s = shift;
+	$s =~ s/^\s+//;
+	return $s;
+}
+
+sub rtrim($) {
+	my $s = shift;
+	$s =~ s/\s+$//;
+	return $s;
+}
+
+sub trim($) {
+	my $s = shift;
+	$s =~ s/^\s+|\s+$//g;
+	return $s;
+}
+
 1;

@@ -32,20 +32,42 @@ my $db_search = $dbh->quote($search);
 
 my $save_ident = '';
 foreach my $row (@{$dbh->selectall_arrayref(qq{
-	SELECT m.ident, m.descr, m.uuid, mt.email, mt.trustgroup, mt.state,
-	       m.login_attempts, sf.type AS sft
+	SELECT m.ident, mt.email, mt.trustgroup, mt.state, me.pgpkey_id
 	  FROM member m
 	  JOIN member_trustgroup mt ON (mt.member = m.ident)
-	  JOIN second_factors sf ON (sf.member = m.ident)
+    INNER JOIN member_email me ON (mt.email = me.email)
 	 WHERE m.ident ~* $db_search
 	    OR m.descr ~* $db_search
 	    OR mt.email ~* $db_search
-	ORDER BY m.ident
+        GROUP BY mt.trustgroup, m.ident, mt.email, mt.state, me.pgpkey_id
+	ORDER BY m.ident, mt.trustgroup
 }, {Slice => {}} )}) {
 	if ($row->{ident} ne $save_ident) {
 		$save_ident = $row->{ident};
-		print "[$save_ident] '$row->{descr}' $row->{uuid} " .
-		      "LA: $row->{login_attempts} SF: $row->{sft}\n";
+		my $q_ident = $dbh->quote($save_ident);
+
+		my ($login_attempts, $descr, $uuid) = $dbh->selectrow_array(qq{
+				SELECT login_attempts, descr, uuid
+				FROM member
+				WHERE ident = $q_ident
+				});
+
+		my $sft = '';
+		foreach my $sfts (@{$dbh->selectall_arrayref(qq{
+				SELECT sf.type AS sft, COUNT(*) AS cnt
+				FROM member m
+				JOIN second_factors sf ON (sf.member = m.ident)
+				WHERE m.ident = $q_ident
+				GROUP BY sf.type
+				}, , {Slice => {}} )}) {
+			$sft .= $sfts->{cnt}."x".$sfts->{sft}." ";
+		}
+		$sft = common::trim($sft);
+
+		printf "[%s] '%s' %s LA: %s, SF: %s\n",
+			$save_ident, $descr, $uuid,
+			$login_attempts || "none",
+			$sft || "none";
 	}
 	my $db_ident = $dbh->quote($save_ident);
 	my $db_trustgroup = $dbh->quote($row->{trustgroup});
@@ -61,12 +83,12 @@ foreach my $row (@{$dbh->selectall_arrayref(qq{
 		 WHERE ROW(mv.vouchee, mv.trustgroup) =
 			ROW($db_ident, $db_trustgroup)
 		   AND mv.positive
-		   AND me.pgpkey_id IS NOT NULL
 		ORDER BY mv.entered
 		LIMIT 1
 	});
-	printf "  [%s] <%s> %s (%s, %s)\n",
+	printf "  [%s] <%s> %s %s (%s, %s)\n",
 		$row->{trustgroup}, $row->{email}, $row->{state},
+		$row->{pgpkey_id} || 'NO-PGP',
 		$vouchor || '""', $vouch_age || '0';
 }
 
