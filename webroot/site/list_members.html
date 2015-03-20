@@ -20,8 +20,8 @@ my $n = 0;
 
 $search =~ s/(\W)/\\$1/g;
 
-foreach my $state (qw[nominated vetted approved active
-		      soonidle idle inactive failed all])
+foreach my $state (qw[nominated vetted approved active soonidle
+                   idle inactive failed blocked all])
 {
 	next unless $by_state{$state}->{count} > 0 || $state eq 'all';
 	my $selector = '';
