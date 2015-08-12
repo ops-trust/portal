@@ -23,15 +23,15 @@ PERL_SCRIPTS= approve chpw dbck-password findmember \
 
 SHELL_SCRIPTS= cronrun-day cronrun-minute cronrun-week \
 	extract-sysadmins fix-install merge-member remove-from-tg \
-	rename-email set-no-mail tg-maker funcs.sh
+	rename-email set-no-mail tg-maker
 
 SCRIPTS= ${PERL_SCRIPTS} ${SHELL_SCRIPTS}
 
-MADE= common.pm http-real.inc signature ${SCRIPTS}
+MADE= portal.conf common.pm http-real.inc signature ${SCRIPTS}
 
 MADE_SGID= mh-wrapper
 
-OTHER= schema.psql
+OTHER= schema.psql funcs.sh
 
 SUBDIRS= db_migrations
 
@@ -46,6 +46,9 @@ clean:; rm -f ${MADE} ${MADE_SGID}
 	done
 
 CFLAGS= -O -Wall
+
+portal.conf: portal.conf.template ../siteconfig
+	perl ../mycat.pl ../siteconfig < $@.template > $@
 
 common.pm: common.pm.template ../siteconfig
 	perl ../mycat.pl ../siteconfig < $@.template > $@

@@ -21,7 +21,7 @@
 
 cd $(dirname $0) || exit 1
 
-. ./funcs
+. ./funcs.sh
 
 if [ $# -lt 2 ]; then
 	echo "Usage: $0 <email> <trustgroup>"
