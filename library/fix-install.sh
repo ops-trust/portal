@@ -39,7 +39,7 @@ chmod -R 775 !portal!/webvar
 chmod -R 775 !portal!/webroot
 
 for dir in logs webroot; do
-  chown -R root:sudo !portal!/${dir}
+  chown -R root:0 !portal!/${dir}
 done
 
 for masondir in \
