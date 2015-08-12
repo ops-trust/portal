@@ -25,21 +25,21 @@ cd $(dirname $0) || exit 1
 # Rsync'ing over a git clone is bobo... fix the permissions and add missing
 # directories/links.
 
-sudo mkdir -p !portal!/webvar
-sudo chown !wwwuid!:!wwwgid! !portal!/webvar
+mkdir -p !portal!/webvar
+chown !wwwuid!:!wwwgid! !portal!/webvar
 for sub in badpgp ml_keys pgpkeys tmp; do
-  sudo mkdir -p !portal!/webvar/${sub}
-  sudo chown -R !wwwuid!:!wwwgid! !portal!/webvar/${sub}
-  sudo chmod 755 !portal!/webvar/${sub}
+  mkdir -p !portal!/webvar/${sub}
+  chown -R !wwwuid!:!wwwgid! !portal!/webvar/${sub}
+  chmod 755 !portal!/webvar/${sub}
 done
 
-sudo chmod -R 770 !portal!/webvar/ml_keys
-sudo chmod -R 770 !portal!/webvar/pgpkeys
-sudo chmod -R 775 !portal!/webvar
-sudo chmod -R 775 !portal!/webroot
+chmod -R 770 !portal!/webvar/ml_keys
+chmod -R 770 !portal!/webvar/pgpkeys
+chmod -R 775 !portal!/webvar
+chmod -R 775 !portal!/webroot
 
 for dir in logs webroot; do
-  sudo chown -R root:sudo !portal!/${dir}
+  chown -R root:sudo !portal!/${dir}
 done
 
 for masondir in \
