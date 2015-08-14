@@ -68,10 +68,7 @@ cron_unlock()
 	fi
 }
 
-portal_query()
-{
-	psql -h ${PORTAL_DB_HOST} -p ${PORTAL_DB_PORT} -d ${PORTAL_DB_NAME}
-}
+export portal_query='psql -h ${PORTAL_DB_HOST} -p ${PORTAL_DB_PORT} -d ${PORTAL_DB_NAME}'
 
 portal_dump()
 {
