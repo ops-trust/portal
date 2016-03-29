@@ -312,8 +312,7 @@ sub find_member($$$$) {
 
 	if ($from !~ /^(\w+\-)?${common::hostmaster}$/ &&
 	    $members_only &&
-	    $from ne $ml &&
-	    !defined $member)
+	    ($from eq $ml || !defined $member))
 	{
 		puke "not a valid sender: $db_from";
 	}
