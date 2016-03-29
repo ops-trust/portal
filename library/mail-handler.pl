@@ -433,7 +433,7 @@ sub xmit_reencrypted($$$$$$) {
 
 	# this part will be the same for every output operation
 	my $keep = $new->attach(Type => 'application/pgp-encrypted',
-				Data => 'Version: 1',
+				Data => 'Version: 1\n',
 				Encoding => '7bit');
 
 	# make a unique second attachment for each recipient, and send it
@@ -513,7 +513,7 @@ sub xmit_encrypted($$$$) {
 
 	# this part will be the same for every output operation
 	my $keep = $new->attach(Type => 'application/pgp-encrypted',
-				Data => 'Version: 1',
+				Data => 'Version: 1\n',
 				Encoding => '7bit');
 
 	# make a unique second attachment for each recipient, and send it
