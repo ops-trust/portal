@@ -627,7 +627,7 @@ sub transmit($$$) {
 	if ($debug) {
 		print "===\n";
 	} else {
-		my $code = $smtp->DATAEND;
+		my $code = $smtp->DATAEND || '250';
 		if ($code !~ /^2/) {
 			puke 'relay failed (END OF DATA ['.$code.']): ' .
 				$smtp->last_response_line;
