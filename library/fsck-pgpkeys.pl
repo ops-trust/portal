@@ -44,12 +44,13 @@ my $loaded_uuid = { };
 my $key_uuids = { };
 my $emails = { };
 foreach my $row (@{$dbh->selectall_arrayref(qq{
-	SELECT m.ident, m.no_email, m.uuid, me.pgpkey_id, me.email, 
-		date(me.pgpkey_expire) as pgpkey_expire, 
+	SELECT DISTINCT ON (me.email) m.ident, m.no_email, m.uuid, me.pgpkey_id,
+		me.email, date(me.pgpkey_expire) as pgpkey_expire,
 		date_part('epoch', me.pgpkey_expire - now()) as pgpkey_remain,
 		date_part('epoch', me.keyring_update_at) as pgpkey_update
-	FROM member_email me
+	FROM member_trustgroup mt, member_email me
 	JOIN member m ON (m.ident = me.member)
+	WHERE m.ident = mt.member AND (mt.state = 'active' or mt.state = 'soonidle');
 }, {Slice => {}})}) {
 	if (defined $row->{pgpkey_id}){
 		if (!defined $loaded_uuid->{$row->{uuid}}) {
