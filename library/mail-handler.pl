@@ -18,8 +18,19 @@
 #
 
 
-# -s: -debug
-our $debug = $debug if defined $debug;
+# Toggle this to 1 to get debug output
+# process:
+#   Need to do this on a live box, due to templates...
+#
+#   Copy mail-handler to mail-handler.debug
+#   Change the debug variable to 1
+#
+#   # export ORIGINAL_RECIPIENT=general@ops-trust.net
+#   # cat <filename.with_email_in_it> | perl ./mail-handler.debug
+#
+#   Note that the file has to start with "From general@ops-trust.net\n"
+
+our $debug = 0;
 
 #
 # extern:
@@ -193,8 +204,9 @@ sub parse_message($$$$) {
 
 	# crack the headers/body
 	if (<STDIN> !~ /^From\s/o) {
-		puke "not a valid message form: no From_ line";
+		puke "not a valid message: does not start with From_ line";
 	}
+
 	eval { $msg = $parser->parse(\*STDIN); };
 	$error = ($@ || $parser->last_error);
 	if ($error) {
@@ -238,6 +250,10 @@ sub parse_message($$$$) {
 		qq{"$descr" <$lhs.$tg->{ident}.${common::domain}>});
 	$head->add('Precedence', 'bulk');
 
+	if ($debug) {
+		print "parse_message: from: $from\n";
+	}
+
 	return ($msg, $from);
 }
 
@@ -262,6 +278,38 @@ sub find_member($$$$) {
 		 WHERE me.email = $db_from
 		   AND ms.can_send
 	});
+
+	if ($debug) {
+		print "find_member(from: >>>$from<<<, ml: >>>$ml<<<, members_only: $members_only): ";
+		if ($member) {
+			print "member: $member->{ident}\n"
+		} else {
+			print "not a member\n";
+		}
+
+		print "find_member: Does not match hostmaster: ";
+		if ($from !~ /^(\w+\-)?${common::hostmaster}$/) {
+			print "TRUE\n";
+		} else {
+			print "false\n";
+		}
+
+		print "find_member: from != ml: ";
+		if ($from eq $ml) {
+			print "TRUE\n";
+		} else {
+			print "false\n";
+		}
+
+		print "find_member: member var is not defined: ";
+		if (!defined $member) {
+			print "TRUE\n";
+		} else {
+			print "false\n";
+		}
+	}
+
+
 	if ($from !~ /^(\w+\-)?${common::hostmaster}$/ &&
 	    $members_only &&
 	    $from ne $ml &&
@@ -269,12 +317,14 @@ sub find_member($$$$) {
 	{
 		puke "not a valid sender: $db_from";
 	}
+
 	if (defined $member) {
 		puke "email is disabled in this member's profile"
 			if $member->{no_email};
 		puke "member is on holiday or furlough"
 			if $member->{furlough};
 	}
+
 	# XXX for some reason 'defined $member' isn't enough?
 	if (defined $member && defined $member->{state}) {
 		my $db_ident = $dbh->quote($member->{ident});
@@ -292,6 +342,7 @@ sub find_member($$$$) {
 			});
 		}
 	}
+
 	return ($member);
 }
 
