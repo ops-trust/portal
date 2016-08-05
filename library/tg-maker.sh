@@ -33,6 +33,15 @@ cd $(dirname $0) || exit 1
 
 . ./funcs.sh
 
+echo << EOT
+Note that the for loop below is questions being asked and expected type()
+  of response. Valid types are:
+    s == string - this is a string
+    n == number - 12
+    i == interval - 7 days
+    b == boolean - true
+EOT
+
 for v in tgname/s descr/s shortname/s min_invouch/n target_invouch/n \
         min_outvouch/n max_inactivity/i idle_guard/i pgp_required/b \
 	please_vouch/b vouch_adminonly/b nom_enabled/b can_time_out/b \
